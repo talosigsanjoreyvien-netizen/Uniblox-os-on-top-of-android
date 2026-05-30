@@ -1,0 +1,6 @@
+{
+  "name": "Uniblox OS",
+  "description": "A minimalist OS running on top of Android, giving you a focused and efficient digital workspace.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
