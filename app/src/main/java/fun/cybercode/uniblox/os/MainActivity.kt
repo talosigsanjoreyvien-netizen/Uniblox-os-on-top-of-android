@@ -55,6 +55,7 @@ import `fun`.cybercode.uniblox.os.data.OSDatabase
 import `fun`.cybercode.uniblox.os.data.OSRepository
 import `fun`.cybercode.uniblox.os.viewmodel.MainViewModel
 import `fun`.cybercode.uniblox.os.viewmodel.MainViewModelFactory
+import `fun`.cybercode.uniblox.os.viewmodel.MainUiState
 import `fun`.cybercode.uniblox.os.ui.theme.*
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -98,7 +99,7 @@ data class AppInfo(
 
 @Composable
 fun UnibloxOSApp(viewModel: MainViewModel) {
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     
     // We use a local state for the setup step transitions, 
     // but the final state is determined by the persisted settings.
@@ -107,35 +108,38 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
     var userCountry by remember { mutableStateOf("") }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        if (settings == null) {
-            // Loading state - optional, but helps avoid flicker
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+        when (val state = uiState) {
+            is MainUiState.Loading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
             }
-        } else if (settings?.isSetupComplete == true) {
-            DesktopScreen(userName = settings?.userName ?: "")
-        } else {
-            when (currentStep) {
-                SetupStep.SET_DEFAULT -> SetDefaultScreen(onNext = { currentStep = SetupStep.PAGE_1 })
-                SetupStep.PAGE_1 -> SetupPage1(onNext = { currentStep = SetupStep.PAGE_2 })
-                SetupStep.PAGE_2 -> SetupPage2(onNext = { currentStep = SetupStep.PAGE_3 })
-                SetupStep.PAGE_3 -> SetupPage3(onNext = { currentStep = SetupStep.PAGE_4 })
-                SetupStep.PAGE_4 -> SetupPage4(
-                    country = userCountry,
-                    onCountryChange = { userCountry = it },
-                    onNext = { currentStep = SetupStep.PAGE_5 }
-                )
-                SetupStep.PAGE_5 -> SetupPage5(
-                    name = userName,
-                    onNameChange = { userName = it },
-                    onNext = { 
-                        viewModel.completeSetup(userName, userCountry)
+            is MainUiState.Success -> {
+                val settings = state.settings
+                if (settings?.isSetupComplete == true) {
+                    DesktopScreen(userName = settings.userName)
+                } else {
+                    when (currentStep) {
+                        SetupStep.SET_DEFAULT -> SetDefaultScreen(onNext = { currentStep = SetupStep.PAGE_1 })
+                        SetupStep.PAGE_1 -> SetupPage1(onNext = { currentStep = SetupStep.PAGE_2 })
+                        SetupStep.PAGE_2 -> SetupPage2(onNext = { currentStep = SetupStep.PAGE_3 })
+                        SetupStep.PAGE_3 -> SetupPage3(onNext = { currentStep = SetupStep.PAGE_4 })
+                        SetupStep.PAGE_4 -> SetupPage4(
+                            country = userCountry,
+                            onCountryChange = { userCountry = it },
+                            onNext = { currentStep = SetupStep.PAGE_5 }
+                        )
+                        SetupStep.PAGE_5 -> SetupPage5(
+                            name = userName,
+                            onNameChange = { userName = it },
+                            onNext = { 
+                                viewModel.completeSetup(userName, userCountry)
+                            }
+                        )
+                        SetupStep.HOME -> {
+                            DesktopScreen(userName = userName)
+                        }
                     }
-                )
-                SetupStep.HOME -> {
-                    // This case is handled by the settings?.isSetupComplete check
-                    // but we keep it for logical completeness
-                    DesktopScreen(userName = userName)
                 }
             }
         }
