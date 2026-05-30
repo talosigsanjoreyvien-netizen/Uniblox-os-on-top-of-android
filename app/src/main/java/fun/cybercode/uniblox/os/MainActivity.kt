@@ -48,6 +48,13 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import `fun`.cybercode.uniblox.os.data.OSDatabase
+import `fun`.cybercode.uniblox.os.data.OSRepository
+import `fun`.cybercode.uniblox.os.viewmodel.MainViewModel
+import `fun`.cybercode.uniblox.os.viewmodel.MainViewModelFactory
 import `fun`.cybercode.uniblox.os.ui.theme.*
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -57,9 +64,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        val database = OSDatabase.getDatabase(applicationContext)
+        val repository = OSRepository(database.osDao())
+        val viewModelFactory = MainViewModelFactory(repository)
+
         setContent {
             MyApplicationTheme {
-                UnibloxOSApp()
+                val mainViewModel: MainViewModel = viewModel(factory = viewModelFactory)
+                UnibloxOSApp(mainViewModel)
             }
         }
     }
@@ -84,28 +97,47 @@ data class AppInfo(
 )
 
 @Composable
-fun UnibloxOSApp() {
+fun UnibloxOSApp(viewModel: MainViewModel) {
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    
+    // We use a local state for the setup step transitions, 
+    // but the final state is determined by the persisted settings.
     var currentStep by remember { mutableStateOf(SetupStep.SET_DEFAULT) }
     var userName by remember { mutableStateOf("") }
     var userCountry by remember { mutableStateOf("") }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        when (currentStep) {
-            SetupStep.SET_DEFAULT -> SetDefaultScreen(onNext = { currentStep = SetupStep.PAGE_1 })
-            SetupStep.PAGE_1 -> SetupPage1(onNext = { currentStep = SetupStep.PAGE_2 })
-            SetupStep.PAGE_2 -> SetupPage2(onNext = { currentStep = SetupStep.PAGE_3 })
-            SetupStep.PAGE_3 -> SetupPage3(onNext = { currentStep = SetupStep.PAGE_4 })
-            SetupStep.PAGE_4 -> SetupPage4(
-                country = userCountry,
-                onCountryChange = { userCountry = it },
-                onNext = { currentStep = SetupStep.PAGE_5 }
-            )
-            SetupStep.PAGE_5 -> SetupPage5(
-                name = userName,
-                onNameChange = { userName = it },
-                onNext = { currentStep = SetupStep.HOME }
-            )
-            SetupStep.HOME -> DesktopScreen(userName = userName)
+        if (settings == null) {
+            // Loading state - optional, but helps avoid flicker
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (settings?.isSetupComplete == true) {
+            DesktopScreen(userName = settings?.userName ?: "")
+        } else {
+            when (currentStep) {
+                SetupStep.SET_DEFAULT -> SetDefaultScreen(onNext = { currentStep = SetupStep.PAGE_1 })
+                SetupStep.PAGE_1 -> SetupPage1(onNext = { currentStep = SetupStep.PAGE_2 })
+                SetupStep.PAGE_2 -> SetupPage2(onNext = { currentStep = SetupStep.PAGE_3 })
+                SetupStep.PAGE_3 -> SetupPage3(onNext = { currentStep = SetupStep.PAGE_4 })
+                SetupStep.PAGE_4 -> SetupPage4(
+                    country = userCountry,
+                    onCountryChange = { userCountry = it },
+                    onNext = { currentStep = SetupStep.PAGE_5 }
+                )
+                SetupStep.PAGE_5 -> SetupPage5(
+                    name = userName,
+                    onNameChange = { userName = it },
+                    onNext = { 
+                        viewModel.completeSetup(userName, userCountry)
+                    }
+                )
+                SetupStep.HOME -> {
+                    // This case is handled by the settings?.isSetupComplete check
+                    // but we keep it for logical completeness
+                    DesktopScreen(userName = userName)
+                }
+            }
         }
     }
 }
@@ -298,6 +330,20 @@ fun DesktopScreen(userName: String) {
     var splitRatio by remember { mutableFloatStateOf(0.5f) }
     var isStartMenuOpen by remember { mutableStateOf(false) }
 
+    // Intercept back button to prevent returning to setup and handle window/menu dismissal
+    BackHandler {
+        if (isStartMenuOpen) {
+            isStartMenuOpen = false
+        } else if (openWebWindows.isNotEmpty()) {
+            // Close the most recently active window
+            openWebWindows = openWebWindows.dropLast(1)
+            focusedApp = openWebWindows.lastOrNull()
+        } else {
+            // If no windows/menus are open, we let the system handle it (exit app)
+            // But we don't want to go back to setup because that's not active anymore
+        }
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val desktopWidth = maxWidth
         AnimatedWallpaper()
@@ -438,14 +484,13 @@ fun StartMenu(
                 .padding(start = 16.dp, bottom = 80.dp)
                 .width(400.dp)
                 .fillMaxHeight(0.7f)
-                .clickable(enabled = false) {}, // Prevent clicks from going through to the desktop
+                .clickable(enabled = false) {}, 
             shape = RoundedCornerShape(24.dp),
-            color = Color(0xEE1A1C2E), // Dark blurred-like background
+            color = Color(0xEE1A1C2E),
             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
             shadowElevation = 24.dp
         ) {
             Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-                // Search Bar
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -472,7 +517,6 @@ fun StartMenu(
 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Apps Grid
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(4),
                     modifier = Modifier.weight(1f),
@@ -506,7 +550,6 @@ fun StartMenu(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // User Footer
                 HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -541,43 +584,23 @@ fun WebViewWindow(
         shadowElevation = 8.dp
     ) {
         Column {
-            // Window Header
             Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp),
+                modifier = Modifier.fillMaxWidth().height(40.dp),
                 color = Color(0xFFF0F0F0),
                 shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 12.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Image(
-                            bitmap = app.icon.toBitmap().asImageBitmap(),
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = app.name,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.DarkGray
-                        )
+                        Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = null, modifier = Modifier.size(20.dp))
+                        Text(text = app.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.DarkGray)
                     }
-                    
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         IconButton(onClick = onFullscreenToggle, modifier = Modifier.size(28.dp)) {
-                            Icon(
-                                if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = "Fullscreen",
-                                tint = Color.DarkGray,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Icon(if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.DarkGray, modifier = Modifier.size(18.dp))
                         }
                         IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
                             Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.DarkGray, modifier = Modifier.size(18.dp))
@@ -585,8 +608,6 @@ fun WebViewWindow(
                     }
                 }
             }
-            
-            // Browser Content
             Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
                 AndroidView(
                     factory = { context ->
@@ -599,8 +620,6 @@ fun WebViewWindow(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-                
-                // Overlay to catch clicks and manage focus if needed
             }
         }
     }
@@ -613,46 +632,23 @@ fun DesktopTaskbar(
     onAppClick: (AppInfo) -> Unit
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(36.dp)),
+        modifier = Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(36.dp)),
         color = Color(0xCC1A1C1E)
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Color.Blue.copy(alpha = 0.2f))
-                    .clickable { onStartClick() },
-                contentAlignment = Alignment.Center
-            ) {
+        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.Blue.copy(alpha = 0.2f)).clickable { onStartClick() }, contentAlignment = Alignment.Center) {
                 OSIcon(size = 32.dp)
             }
-            
             Spacer(modifier = Modifier.width(24.dp))
-            
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 activeApps.forEach { app ->
                     Surface(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onAppClick(app) },
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).clickable { onAppClick(app) },
                         color = Color.White.copy(alpha = 0.1f),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(8.dp)) {
-                            Image(
-                                bitmap = app.icon.toBitmap().asImageBitmap(),
-                                contentDescription = app.name,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = app.name, modifier = Modifier.fillMaxSize())
                         }
                     }
                 }
@@ -664,15 +660,7 @@ fun DesktopTaskbar(
 @Composable
 fun AnimatedWallpaper() {
     val infiniteTransition = rememberInfiniteTransition(label = "")
-    val offset by infiniteTransition.animateFloat(
-        initialValue = 0f, 
-        targetValue = 30f, 
-        animationSpec = infiniteRepeatable(
-            animation = tween(10000, easing = LinearEasing), 
-            repeatMode = RepeatMode.Reverse
-        ), 
-        label = ""
-    )
+    val offset by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 30f, animationSpec = infiniteRepeatable(animation = tween(10000, easing = LinearEasing), repeatMode = RepeatMode.Reverse), label = "")
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF001220))) {
         Canvas(modifier = Modifier.fillMaxSize().offset(x = offset.dp)) {
             drawCircle(color = Color(0xFF0D47A1), radius = size.width, center = androidx.compose.ui.geometry.Offset(size.width * 0.2f, size.height * 0.8f), alpha = 0.5f)
@@ -683,19 +671,9 @@ fun AnimatedWallpaper() {
 
 @Composable
 fun OSIcon(size: androidx.compose.ui.unit.Dp = 96.dp) {
-    Surface(
-        modifier = Modifier.size(size).shadow(if (size > 50.dp) 12.dp else 0.dp, RoundedCornerShape(size / 2.5f)), 
-        color = Color.White, 
-        shape = RoundedCornerShape(size / 2.5f)
-    ) {
+    Surface(modifier = Modifier.size(size).shadow(if (size > 50.dp) 12.dp else 0.dp, RoundedCornerShape(size / 2.5f)), color = Color.White, shape = RoundedCornerShape(size / 2.5f)) {
         Box(contentAlignment = Alignment.Center) {
-            Box(
-                modifier = Modifier.size(size * 0.6f).background(
-                    brush = Brush.linearGradient(colors = listOf(Color(0xFF6750A4), Color(0xFF927BCC))), 
-                    shape = RoundedCornerShape(size * 0.16f)
-                ), 
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.size(size * 0.6f).background(brush = Brush.linearGradient(colors = listOf(Color(0xFF6750A4), Color(0xFF927BCC))), shape = RoundedCornerShape(size * 0.16f)), contentAlignment = Alignment.Center) {
                 Box(modifier = Modifier.size(size * 0.25f).border(4.dp, Color.White, RoundedCornerShape(size * 0.06f)))
             }
         }
@@ -704,16 +682,8 @@ fun OSIcon(size: androidx.compose.ui.unit.Dp = 96.dp) {
 
 @Composable
 fun DesktopIcon(app: AppInfo, onClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally, 
-        modifier = Modifier.width(IntrinsicSize.Min).clickable { onClick() }.padding(8.dp)
-    ) {
-        Image(
-            bitmap = app.icon.toBitmap().asImageBitmap(), 
-            contentDescription = app.name, 
-            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(if (app.name == "recycle bin") Color(0xFF4CAF50) else Color.White).padding(if (app.name == "recycle bin") 8.dp else 0.dp), 
-            contentScale = ContentScale.Fit
-        )
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(IntrinsicSize.Min).clickable { onClick() }.padding(8.dp)) {
+        Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(if (app.name == "recycle bin") Color(0xFF4CAF50) else Color.White).padding(if (app.name == "recycle bin") 8.dp else 0.dp), contentScale = ContentScale.Fit)
         Spacer(modifier = Modifier.height(4.dp))
         Text(text = app.name.lowercase(), color = Color.White, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 1)
     }
@@ -722,24 +692,12 @@ fun DesktopIcon(app: AppInfo, onClick: () -> Unit) {
 @Composable
 fun RightSidePanel(activeApps: List<AppInfo>) {
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 16.dp)
-                .width(100.dp)
-                .fillMaxHeight(0.8f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.Black.copy(alpha = 0.3f))
-                .padding(16.dp), 
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        Column(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp).width(100.dp).fillMaxHeight(0.8f).clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.3f)).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.Wifi, contentDescription = null, tint = Color.Blue, modifier = Modifier.size(48.dp))
             Text("internet", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             Spacer(modifier = Modifier.height(32.dp))
             Text("active apps", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            activeApps.takeLast(3).forEach { app -> 
-                Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = null, modifier = Modifier.size(40.dp).padding(4.dp)) 
-            }
+            activeApps.takeLast(3).forEach { app -> Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = null, modifier = Modifier.size(40.dp).padding(4.dp)) }
         }
     }
 }
