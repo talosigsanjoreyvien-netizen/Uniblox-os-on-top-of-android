@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -51,6 +52,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.activity.compose.BackHandler
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import `fun`.cybercode.uniblox.os.data.OSDatabase
 import `fun`.cybercode.uniblox.os.data.OSRepository
 import `fun`.cybercode.uniblox.os.viewmodel.MainViewModel
@@ -65,6 +69,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // Hide system bars
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
         
         val database = OSDatabase.getDatabase(applicationContext)
         val repository = OSRepository(database.osDao())
@@ -467,7 +476,10 @@ fun DesktopScreen(userName: String) {
         }
         
         if (!isFullscreen) {
-            RightSidePanel(activeApps = openWebWindows)
+            RightSidePanel(
+                activeApps = openWebWindows,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            )
         }
     }
 }
@@ -640,8 +652,22 @@ fun DesktopTaskbar(
         color = Color(0xCC1A1C1E)
     ) {
         Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.Blue.copy(alpha = 0.2f)).clickable { onStartClick() }, contentAlignment = Alignment.Center) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.Blue.copy(alpha = 0.2f))
+                    .clickable { onStartClick() }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OSIcon(size = 32.dp)
+                Text(
+                    text = "apps",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
             }
             Spacer(modifier = Modifier.width(24.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -664,9 +690,19 @@ fun DesktopTaskbar(
 @Composable
 fun AnimatedWallpaper() {
     val infiniteTransition = rememberInfiniteTransition(label = "")
-    val offset by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 30f, animationSpec = infiniteRepeatable(animation = tween(10000, easing = LinearEasing), repeatMode = RepeatMode.Reverse), label = "")
+    val offset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 30f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(10000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = ""
+    )
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF001220))) {
-        Canvas(modifier = Modifier.fillMaxSize().offset(x = offset.dp)) {
+        Canvas(modifier = Modifier.fillMaxSize().graphicsLayer {
+            translationX = offset.dp.toPx()
+        }) {
             drawCircle(color = Color(0xFF0D47A1), radius = size.width, center = androidx.compose.ui.geometry.Offset(size.width * 0.2f, size.height * 0.8f), alpha = 0.5f)
             drawCircle(color = Color(0xFF1976D2), radius = size.width * 0.8f, center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, size.height * 0.2f), alpha = 0.3f)
         }
@@ -694,15 +730,22 @@ fun DesktopIcon(app: AppInfo, onClick: () -> Unit) {
 }
 
 @Composable
-fun RightSidePanel(activeApps: List<AppInfo>) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp).width(100.dp).fillMaxHeight(0.8f).clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.3f)).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.Wifi, contentDescription = null, tint = Color.Blue, modifier = Modifier.size(48.dp))
-            Text("internet", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("active apps", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            activeApps.takeLast(3).forEach { app -> Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = null, modifier = Modifier.size(40.dp).padding(4.dp)) }
-        }
+fun RightSidePanel(activeApps: List<AppInfo>, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .padding(end = 16.dp)
+            .width(100.dp)
+            .fillMaxHeight(0.8f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.3f))
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(Icons.Default.Wifi, contentDescription = null, tint = Color.Blue, modifier = Modifier.size(48.dp))
+        Text("internet", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("active apps", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        activeApps.takeLast(3).forEach { app -> Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = null, modifier = Modifier.size(40.dp).padding(4.dp)) }
     }
 }
 
