@@ -10,6 +10,7 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -55,10 +56,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.animation.Crossfade
+import androidx.compose.ui.res.painterResource
 import `fun`.cybercode.uniblox.os.data.OSDatabase
 import `fun`.cybercode.uniblox.os.data.OSRepository
 import `fun`.cybercode.uniblox.os.viewmodel.MainViewModel
 import `fun`.cybercode.uniblox.os.viewmodel.MainViewModelFactory
+import `fun`.cybercode.uniblox.os.R
 import `fun`.cybercode.uniblox.os.viewmodel.MainUiState
 import `fun`.cybercode.uniblox.os.ui.theme.*
 import kotlinx.coroutines.delay
@@ -116,7 +120,7 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
     var userName by remember { mutableStateOf("") }
     var userCountry by remember { mutableStateOf("") }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    Box(modifier = Modifier.fillMaxSize()) {
         when (val state = uiState) {
             is MainUiState.Loading -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -126,27 +130,44 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
             is MainUiState.Success -> {
                 val settings = state.settings
                 if (settings?.isSetupComplete == true) {
-                    DesktopScreen(userName = settings.userName)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AnimatedWallpaper()
+                        DesktopScreen(userName = settings.userName)
+                    }
                 } else {
-                    when (currentStep) {
-                        SetupStep.SET_DEFAULT -> SetDefaultScreen(onNext = { currentStep = SetupStep.PAGE_1 })
-                        SetupStep.PAGE_1 -> SetupPage1(onNext = { currentStep = SetupStep.PAGE_2 })
-                        SetupStep.PAGE_2 -> SetupPage2(onNext = { currentStep = SetupStep.PAGE_3 })
-                        SetupStep.PAGE_3 -> SetupPage3(onNext = { currentStep = SetupStep.PAGE_4 })
-                        SetupStep.PAGE_4 -> SetupPage4(
-                            country = userCountry,
-                            onCountryChange = { userCountry = it },
-                            onNext = { currentStep = SetupStep.PAGE_5 }
-                        )
-                        SetupStep.PAGE_5 -> SetupPage5(
-                            name = userName,
-                            onNameChange = { userName = it },
-                            onNext = { 
-                                viewModel.completeSetup(userName, userCountry)
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        AnimatedContent(
+                            targetState = currentStep,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(500)) togetherWith
+                                        fadeOut(animationSpec = tween(500))
+                            },
+                            label = "setup_transition"
+                        ) { step ->
+                            when (step) {
+                                SetupStep.SET_DEFAULT -> SetDefaultScreen(onNext = { currentStep = SetupStep.PAGE_1 })
+                                SetupStep.PAGE_1 -> SetupPage1(onNext = { currentStep = SetupStep.PAGE_2 })
+                                SetupStep.PAGE_2 -> SetupPage2(onNext = { currentStep = SetupStep.PAGE_3 })
+                                SetupStep.PAGE_3 -> SetupPage3(onNext = { currentStep = SetupStep.PAGE_4 })
+                                SetupStep.PAGE_4 -> SetupPage4(
+                                    country = userCountry,
+                                    onCountryChange = { userCountry = it },
+                                    onNext = { currentStep = SetupStep.PAGE_5 }
+                                )
+                                SetupStep.PAGE_5 -> SetupPage5(
+                                    name = userName,
+                                    onNameChange = { userName = it },
+                                    onNext = { 
+                                        viewModel.completeSetup(userName, userCountry)
+                                    }
+                                )
+                                SetupStep.HOME -> {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        AnimatedWallpaper()
+                                        DesktopScreen(userName = userName)
+                                    }
+                                }
                             }
-                        )
-                        SetupStep.HOME -> {
-                            DesktopScreen(userName = userName)
                         }
                     }
                 }
@@ -154,45 +175,52 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
         }
     }
 }
-
 @Composable
 fun OSStatusBar() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    var isVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { isVisible = true }
+    
+    androidx.compose.animation.AnimatedVisibility(
+        visible = isVisible,
+        enter = expandVertically() + fadeIn()
     ) {
-        Text(
-            text = SimpleDateFormat("H:mm", Locale.getDefault()).format(Date()),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Surface(
-                modifier = Modifier.size(16.dp),
-                shape = CircleShape,
-                border = BorderStroke(2.dp, Color.Black.copy(alpha = 0.2f)),
-                color = Color.Transparent
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Box(modifier = Modifier.size(6.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = SimpleDateFormat("H:mm", Locale.getDefault()).format(Date()),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Surface(
+                    modifier = Modifier.size(16.dp),
+                    shape = CircleShape,
+                    border = BorderStroke(2.dp, Color.Black.copy(alpha = 0.2f)),
+                    color = Color.Transparent
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.size(6.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape))
+                    }
                 }
-            }
-            Surface(
-                modifier = Modifier.size(16.dp),
-                shape = CircleShape,
-                border = BorderStroke(2.dp, Color.Black.copy(alpha = 0.2f)),
-                color = Color.Transparent
-            ) {}
-            Surface(
-                modifier = Modifier.size(24.dp, 12.dp),
-                shape = RoundedCornerShape(2.dp),
-                border = BorderStroke(2.dp, Color.Black.copy(alpha = 0.2f)),
-                color = Color.Transparent
-            ) {
-                Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.6f).background(Color.Black.copy(alpha = 0.4f)))
+                Surface(
+                    modifier = Modifier.size(16.dp),
+                    shape = CircleShape,
+                    border = BorderStroke(2.dp, Color.Black.copy(alpha = 0.2f)),
+                    color = Color.Transparent
+                ) {}
+                Surface(
+                    modifier = Modifier.size(24.dp, 12.dp),
+                    shape = RoundedCornerShape(2.dp),
+                    border = BorderStroke(2.dp, Color.Black.copy(alpha = 0.2f)),
+                    color = Color.Transparent
+                ) {
+                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.6f).background(Color.Black.copy(alpha = 0.4f)))
+                }
             }
         }
     }
@@ -326,15 +354,43 @@ fun DesktopScreen(userName: String) {
     val pm = context.packageManager
     val installedApps = remember {
         val intents = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
-        val apps = pm.queryIntentActivities(intents, 0).map {
-            AppInfo(name = it.loadLabel(pm).toString(), packageName = it.activityInfo.packageName, icon = it.loadIcon(pm))
+        val appsList = pm.queryIntentActivities(intents, 0).map { resolveInfo ->
+            val pkg = resolveInfo.activityInfo.packageName
+            val name = resolveInfo.loadLabel(pm).toString()
+            val icon = resolveInfo.loadIcon(pm)
+            
+            // Mapping for web-capable apps
+            val webUrl = when {
+                pkg.contains("youtube") -> "https://www.youtube.com"
+                pkg.contains("facebook") -> "https://www.facebook.com"
+                pkg.contains("twitter") || pkg.contains("x.corp") -> "https://x.com"
+                pkg.contains("threads") -> "https://www.threads.net"
+                pkg.contains("reddit") -> "https://www.reddit.com"
+                pkg.contains("google.android.apps.messaging") -> "https://messages.google.com"
+                pkg.contains("google.android.gm") -> "https://mail.google.com"
+                pkg.contains("com.android.chrome") -> "https://www.google.com"
+                else -> null
+            }
+            
+            AppInfo(name = name, packageName = pkg, icon = icon, isWeb = webUrl != null, url = webUrl)
         }.toMutableList()
         
-        apps.add(AppInfo("uniblox-fun", "com.web.uniblox", context.packageManager.defaultActivityIcon, true, "https://uniblox-fun.vercel.app"))
-        apps.add(AppInfo("youtube", "com.google.android.youtube", context.packageManager.defaultActivityIcon, true, "https://www.youtube.com"))
-        apps.add(AppInfo("recycle bin", "com.os.recyclebin", context.packageManager.defaultActivityIcon))
+        // Ensure hardcoded web apps have real icons if their packages exist
+        fun getIcon(packageName: String): Drawable {
+            return try { pm.getApplicationIcon(packageName) } catch (e: Exception) { pm.defaultActivityIcon }
+        }
+
+        appsList.add(AppInfo("infinitycursor ai", "com.uniblox.ai.cursor", pm.defaultActivityIcon, true, "file:///android_asset/infinity_cursor.html"))
+
+        if (appsList.none { it.packageName == "com.web.uniblox" }) {
+            appsList.add(AppInfo("uniblox-fun", "com.web.uniblox", getIcon("com.web.uniblox"), true, "https://uniblox-fun.vercel.app"))
+        }
         
-        apps.sortedBy { it.name }
+        if (appsList.none { it.packageName == "com.os.recyclebin" }) {
+            appsList.add(AppInfo("recycle bin", "com.os.recyclebin", getIcon("com.os.recyclebin"), true, "about:blank"))
+        }
+        
+        appsList.sortedBy { it.name }
     }
 
     var openWebWindows by remember { mutableStateOf(listOf<AppInfo>()) }
@@ -359,7 +415,6 @@ fun DesktopScreen(userName: String) {
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val desktopWidth = maxWidth
-        AnimatedWallpaper()
         
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
@@ -372,8 +427,9 @@ fun DesktopScreen(userName: String) {
                         verticalArrangement = Arrangement.spacedBy(24.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(installedApps.take(5)) { app ->
-                            DesktopIcon(app) {
+                        items(installedApps.take(12).size) { index ->
+                            val app = installedApps[index]
+                            DesktopIcon(app, index = index) {
                                 if (app.isWeb && app.url != null) {
                                     if (!openWebWindows.contains(app)) {
                                         openWebWindows = openWebWindows + app
@@ -398,7 +454,10 @@ fun DesktopScreen(userName: String) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         openWebWindows.forEachIndexed { index, app ->
-                            Box(
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = openWebWindows.contains(app),
+                                enter = scaleIn(initialScale = 0.9f) + fadeIn(),
+                                exit = scaleOut(targetScale = 0.9f) + fadeOut(),
                                 modifier = Modifier
                                     .weight(
                                         if (openWebWindows.size == 2) {
@@ -446,7 +505,12 @@ fun DesktopScreen(userName: String) {
                 }
                 
                 // Start Menu Layer
-                if (isStartMenuOpen) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = isStartMenuOpen,
+                    enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+                    modifier = Modifier.align(Alignment.BottomStart)
+                ) {
                     StartMenu(
                         apps = installedApps,
                         userName = userName,
@@ -476,10 +540,15 @@ fun DesktopScreen(userName: String) {
         }
         
         if (!isFullscreen) {
-            RightSidePanel(
-                activeApps = openWebWindows,
+            androidx.compose.animation.AnimatedVisibility(
+                visible = true,
+                enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
                 modifier = Modifier.align(Alignment.CenterEnd)
-            )
+            ) {
+                RightSidePanel(
+                    activeApps = openWebWindows
+                )
+            }
         }
     }
 }
@@ -625,17 +694,33 @@ fun WebViewWindow(
                 }
             }
             Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
-                AndroidView(
-                    factory = { context ->
-                        WebView(context).apply {
-                            webViewClient = WebViewClient()
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            loadUrl(app.url ?: "")
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                if (app.packageName == "com.os.recyclebin") {
+                    // Custom Recycle Bin UI
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(80.dp), tint = Color.Gray)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Recycle Bin is empty", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
+                        Text("All system cache has been purged", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                    }
+                } else {
+                    AndroidView(
+                        factory = { context ->
+                            WebView(context).apply {
+                                webViewClient = WebViewClient()
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.allowFileAccess = true
+                                settings.allowContentAccess = true
+                                loadUrl(app.url ?: "")
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
     }
@@ -647,38 +732,52 @@ fun DesktopTaskbar(
     activeApps: List<AppInfo>,
     onAppClick: (AppInfo) -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(36.dp)),
-        color = Color(0xCC1A1C1E)
+    var isVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { isVisible = true }
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = isVisible,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn()
     ) {
-        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Blue.copy(alpha = 0.2f))
-                    .clickable { onStartClick() }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OSIcon(size = 32.dp)
-                Text(
-                    text = "apps",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(modifier = Modifier.width(24.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                activeApps.forEach { app ->
-                    Surface(
-                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).clickable { onAppClick(app) },
-                        color = Color.White.copy(alpha = 0.1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(8.dp)) {
-                            Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = app.name, modifier = Modifier.fillMaxSize())
+        Surface(
+            modifier = Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(36.dp)),
+            color = Color(0xCC1A1C1E)
+        ) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.Blue.copy(alpha = 0.2f))
+                        .clickable { onStartClick() }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OSIcon(size = 32.dp)
+                    Text(
+                        text = "apps",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.width(24.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    activeApps.forEach { app ->
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = true,
+                            enter = scaleIn() + fadeIn(),
+                            exit = scaleOut() + fadeOut()
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).clickable { onAppClick(app) },
+                                color = Color.White.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(8.dp)) {
+                                    Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = app.name, modifier = Modifier.fillMaxSize())
+                                }
+                            }
                         }
                     }
                 }
@@ -689,24 +788,95 @@ fun DesktopTaskbar(
 
 @Composable
 fun AnimatedWallpaper() {
-    val infiniteTransition = rememberInfiniteTransition(label = "")
-    val offset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 30f,
+    val infiniteTransition = rememberInfiniteTransition(label = "wallpaper_animation")
+    val frameIndex by infiniteTransition.animateValue(
+        initialValue = 0,
+        targetValue = 6,
+        typeConverter = Int.VectorConverter,
         animationSpec = infiniteRepeatable(
-            animation = tween(10000, easing = LinearEasing),
+            animation = tween(24000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "frame_index"
+    )
+
+    val panOffset by infiniteTransition.animateFloat(
+        initialValue = -40f,
+        targetValue = 40f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(40000, easing = LinearOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = ""
+        label = "wallpaper_pan"
     )
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF001220))) {
-        Canvas(modifier = Modifier.fillMaxSize().graphicsLayer {
-            translationX = offset.dp.toPx()
-        }) {
-            drawCircle(color = Color(0xFF0D47A1), radius = size.width, center = androidx.compose.ui.geometry.Offset(size.width * 0.2f, size.height * 0.8f), alpha = 0.5f)
-            drawCircle(color = Color(0xFF1976D2), radius = size.width * 0.8f, center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, size.height * 0.2f), alpha = 0.3f)
+
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1.15f,
+        targetValue = 1.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(30000, easing = SineAroundEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "wallpaper_scale"
+    )
+
+    val wallpapers = listOf(
+        R.drawable.img_wp_1,
+        R.drawable.img_wp_2,
+        R.drawable.img_wp_3,
+        R.drawable.img_wp_4,
+        R.drawable.img_wp_5
+    )
+
+    // Vibrant Bloom-inspired fallback gradient
+    val backgroundBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF00050A), // Rich deep blue-black
+            Color(0xFF1A1F35), // Dark violet-navy
+            Color(0xFF0A0F1E)
+        )
+    )
+
+    Box(modifier = Modifier.fillMaxSize().background(backgroundBrush)) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                translationX = panOffset.dp.toPx()
+                translationY = (panOffset / 1.5f).dp.toPx()
+                scaleX = scale
+                scaleY = scale
+            }
+        ) {
+            Crossfade(
+                targetState = wallpapers[if (wallpapers.isNotEmpty()) frameIndex % wallpapers.size else 0],
+                animationSpec = tween(2500),
+                label = "wallpaper_fade"
+            ) { wpRes ->
+                Image(
+                    painter = painterResource(id = wpRes),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.85f // Dimmed slightly for better readability of desktop icons
+                )
+            }
+        }
+        
+        // Add a subtle bloom glow overlay
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.Cyan.copy(alpha = 0.1f), Color.Transparent),
+                    center = androidx.compose.ui.geometry.Offset(size.width * 0.5f, size.height * 0.5f),
+                    radius = size.width * 0.6f
+                )
+            )
         }
     }
+}
+
+val SineAroundEasing = Easing { fraction ->
+    ((Math.sin(fraction * Math.PI * 2 - Math.PI / 2) + 1) / 2).toFloat()
 }
 
 @Composable
@@ -721,11 +891,78 @@ fun OSIcon(size: androidx.compose.ui.unit.Dp = 96.dp) {
 }
 
 @Composable
-fun DesktopIcon(app: AppInfo, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(IntrinsicSize.Min).clickable { onClick() }.padding(8.dp)) {
-        Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(if (app.name == "recycle bin") Color(0xFF4CAF50) else Color.White).padding(if (app.name == "recycle bin") 8.dp else 0.dp), contentScale = ContentScale.Fit)
+fun DesktopIcon(app: AppInfo, index: Int = 0, onClick: () -> Unit) {
+    var isLaunched by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(index * 100L) // Staggered entrance
+        isLaunched = true
+    }
+    
+    val scale by animateFloatAsState(
+        targetValue = if (isLaunched) 1f else 0.8f,
+        animationSpec = spring(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy, stiffness = androidx.compose.animation.core.Spring.StiffnessLow),
+        label = "icon_scale"
+    )
+    val opacity by animateFloatAsState(
+        targetValue = if (isLaunched) 1f else 0f,
+        animationSpec = tween(600),
+        label = "icon_opacity"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(IntrinsicSize.Min)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                alpha = opacity
+            }
+            .clickable { onClick() }
+            .padding(8.dp)
+    ) {
+        val isAI = app.name == "infinitycursor ai"
+        val isRecycleBin = app.name == "recycle bin"
+        
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .let { modifier ->
+                    if (isAI) {
+                        modifier.background(Brush.linearGradient(listOf(Color(0xFF00B4D8), Color(0xFF90E0EF))))
+                            .border(2.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    } else {
+                        modifier.background(if (isRecycleBin) Color(0xFF4CAF50) else Color.White)
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            if (isAI) {
+                Icon(
+                    Icons.Default.AutoAwesome, 
+                    contentDescription = null, 
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+            } else {
+                Image(
+                    bitmap = app.icon.toBitmap().asImageBitmap(), 
+                    contentDescription = app.name, 
+                    modifier = Modifier.fillMaxSize().padding(if (app.name == "recycle bin") 8.dp else 0.dp), 
+                    contentScale = ContentScale.Fit
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text = app.name.lowercase(), color = Color.White, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 1)
+        Text(
+            text = app.name.lowercase(), 
+            color = Color.White, 
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), 
+            textAlign = TextAlign.Center, 
+            maxLines = 2,
+            lineHeight = 12.sp
+        )
     }
 }
 

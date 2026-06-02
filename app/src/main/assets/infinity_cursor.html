@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>InfinityCursor</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['Fira Code', 'monospace'],
+          },
+          colors: {
+            gpt: {
+              main: '#212121',
+              sidebar: '#171717',
+              hover: '#2f2f2f',
+              border: '#3c3c3c',
+              text: '#ececec',
+              sub: '#b4b4b4'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #212121;
+      -webkit-tap-highlight-color: transparent;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #424242;
+      border-radius: 99px;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      outline: none;
+    }
+    .prompt-card:active {
+        transform: scale(0.98);
+    }
+  </style>
+</head>
+<body class="bg-gpt-main text-gpt-text flex h-screen w-screen overflow-hidden antialiased select-none">
+
+  <svg class="hidden">
+    <defs>
+      <g id="brand-logo-graphics">
+        <rect width="100" height="64" fill="transparent"/>
+        <path d="M 51 28 L 71 5 L 94 5 L 94 59 L 69 59 Z" fill="#00E635" stroke="black" stroke-width="4.5" stroke-linejoin="miter"/>
+        <path d="M 37 9 L 63 9 L 50 28 Z" fill="white" stroke="black" stroke-width="4.5" stroke-linejoin="miter"/>
+        <path d="M 41 16 L 59 16 L 50 28 Z" fill="#FF8A3C"/>
+        <path d="M 50 28 L 63 47 L 37 47 Z" fill="white" stroke="black" stroke-width="4.5" stroke-linejoin="miter"/>
+        <path d="M 41 40 L 59 40 L 61 47 L 39 47 Z" fill="#FF8A3C"/>
+        <path d="M 5 28 L 18 18 L 18 24 L 46 28 L 18 32 L 18 38 Z" fill="white" stroke="black" stroke-width="4.5" stroke-linejoin="miter" stroke-linecap="square"/>
+        <rect x="48" y="26" width="4" height="4" fill="black" />
+      </g>
+    </defs>
+  </svg>
+
+  <div id="sidebar-overlay" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 hidden lg:hidden transition-opacity duration-300"></div>
+
+  <aside id="sidebar" class="fixed inset-y-0 left-0 w-[280px] bg-gpt-sidebar border-r border-zinc-800 flex flex-col z-50 transform -translate-x-full transition-transform duration-300 lg:translate-x-0 lg:static lg:flex-shrink-0">
+    
+    <div class="px-4 py-4 flex items-center gap-2.5 border-b border-zinc-800/50">
+      <svg class="w-8 h-5 text-white" viewBox="0 0 100 64">
+        <use href="#brand-logo-graphics" />
+      </svg>
+      <div class="flex flex-col">
+        <span class="font-bold text-sm tracking-wide text-zinc-100 leading-none">InfinityCursor</span>
+        <span class="text-[10px] text-zinc-500 font-mono mt-0.5">cognitive v3.0</span>
+      </div>
+    </div>
+
+    <div class="m-3.5 p-3 bg-zinc-900/60 rounded-xl border border-zinc-800/80">
+      <div class="flex items-center gap-2 mb-2.5">
+        <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+        <span class="text-[10px] uppercase font-bold tracking-wider text-zinc-400 font-mono">Brain Synaptic Bank</span>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-center">
+        <div class="p-2 bg-zinc-800/50 rounded-lg">
+          <div id="words-count-display" class="text-lg font-bold text-emerald-400 font-mono">1,402</div>
+          <div class="text-[9px] text-zinc-500 font-sans uppercase">Words Mastered</div>
+        </div>
+        <div class="p-2 bg-zinc-800/50 rounded-lg">
+          <div id="sentences-count-display" class="text-lg font-bold text-orange-400 font-mono">314</div>
+          <div class="text-[9px] text-zinc-500 font-sans uppercase">Sentences Saved</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="p-3.5 pt-1.5">
+      <button id="new-chat-btn" class="w-full flex items-center justify-between py-2 px-3 rounded-lg border border-zinc-700/88 hover:bg-zinc-800 text-xs font-medium text-gpt-text transition-all">
+        <span class="flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-zinc-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          New chat
+        </span>
+      </button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-3 py-1 space-y-6">
+      <div>
+        <h3 class="text-[10px] font-bold font-mono text-zinc-500 px-3 mb-2 uppercase">Chat History</h3>
+        <div id="history-container" class="space-y-0.5"></div>
+      </div>
+    </div>
+
+    <div class="p-3 border-t border-zinc-800/80">
+      <div class="flex items-center gap-3 p-2">
+        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-600 to-green-500 flex items-center justify-center text-xs font-bold text-white shadow">U</div>
+        <div class="flex flex-col">
+          <span class="text-xs font-medium text-gpt-text leading-none">Guest User</span>
+          <span class="text-[10px] text-zinc-500 font-mono mt-0.5">Vibe Workspace</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 flex flex-col relative h-full overflow-hidden bg-gpt-main">
+    
+    <header class="h-14 border-b border-zinc-800/60 bg-gpt-main/85 backdrop-blur-md flex items-center justify-between px-4 shrink-0 z-30">
+      <div class="flex items-center gap-2">
+        <button id="menu-btn" class="p-2 -ml-2 rounded-lg hover:bg-zinc-800 text-zinc-400 lg:hidden transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
+          </svg>
+        </button>
+        
+        <div class="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-zinc-800 transition-colors">
+          <div class="w-9 h-9 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800 shadow-inner">
+            <canvas id="header-bot-canvas"></canvas>
+          </div>
+          <div class="flex flex-col">
+            <span class="text-xs font-semibold text-zinc-200">InfinityCursor</span>
+            <span id="active-status-tag" class="text-[9px] text-emerald-400 font-mono">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <button id="clear-workspace-btn" class="p-2 rounded-lg hover:bg-zinc-800 text-zinc-500" title="Clear Current View">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
+        </svg>
+      </button>
+    </header>
+
+    <div id="chat-stream" class="flex-1 overflow-y-auto flex flex-col select-text">
+    </div>
+
+    <div class="p-4 sm:p-6 bg-gradient-to-t from-gpt-main via-gpt-main/95 to-transparent shrink-0 z-20">
+      <div class="max-w-3xl mx-auto relative">
+        <div class="bg-zinc-800 border border-zinc-700/80 rounded-2xl p-2 flex items-end gap-2 focus-within:border-zinc-600 transition-all shadow-xl">
+          <textarea id="user-input" placeholder="Ask me any question..." rows="1" class="flex-1 max-h-52 min-h-[36px] bg-transparent border-0 ring-0 focus:ring-0 text-sm text-gpt-text outline-none placeholder-zinc-500 py-2 px-3.5 resize-none font-sans leading-relaxed"></textarea>
+          
+          <button id="send-btn" disabled class="h-8.5 w-8.5 rounded-xl bg-white disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-950 flex items-center justify-center transition-colors shadow shrink-0">
+            <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const menuBtn = document.getElementById('menu-btn');
+    const chatStream = document.getElementById('chat-stream');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+    const historyContainer = document.getElementById('history-container');
+    const newChatBtn = document.getElementById('new-chat-btn');
+    const clearWorkspaceBtn = document.getElementById('clear-workspace-btn');
+
+    let chats = {};
+    let currentChatId = null;
+    let totalWordsMastered = 1402;
+    let totalSentencesIngested = 314;
+
+    let enginesList = [];
+    let botState = "waving"; 
+    let boredomTimer = null;
+    const BOREDOM_DELAY = 7000;
+
+    function resetBoredomTimer() {
+      clearTimeout(boredomTimer);
+      if (botState === "bored") {
+        setBotState("waving");
+        setTimeout(() => setBotState("idle"), 1500);
+      }
+      boredomTimer = setTimeout(() => {
+        setBotState("bored");
+      }, BOREDOM_DELAY);
+    }
+
+    function setBotState(state) {
+      botState = state;
+      const statusTag = document.getElementById('active-status-tag');
+      if (statusTag) {
+        if (state === "waving") {
+          statusTag.textContent = "Greeting";
+          statusTag.className = "text-[9px] text-emerald-400 font-mono";
+        } else if (state === "typing") {
+          statusTag.textContent = "Listening";
+          statusTag.className = "text-[9px] text-sky-400 font-mono";
+        } else if (state === "scanning") {
+          statusTag.textContent = "Searching...";
+          statusTag.className = "text-[9px] text-yellow-400 font-mono";
+        } else if (state === "bored") {
+          statusTag.textContent = "Tablet Search";
+          statusTag.className = "text-[9px] text-orange-400 font-mono animate-pulse";
+        } else {
+          statusTag.textContent = "Active";
+          statusTag.className = "text-[9px] text-emerald-400 font-mono";
+        }
+      }
+    }
+
+    function initializeRobotScene(canvasId, scaleFactor = 1.0) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return null;
+
+      const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+
+      const camera = new BABYLON.Vector3(0, 0.2, -6.2 * scaleFactor);
+      const target = new BABYLON.Vector3(0, 0.1, 0);
+      const freeCam = new BABYLON.TargetCamera("Camera", camera, scene);
+      freeCam.setTarget(target);
+
+      const light1 = new BABYLON.HemisphericLight("light1", new BABYLON.Vector3(0, 1, 0), scene);
+      light1.intensity = 0.85;
+      
+      const light2 = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(-1, -2, -1), scene);
+      light2.position = new BABYLON.Vector3(2, 4, 2);
+      light2.intensity = 0.55;
+
+      const botRoot = new BABYLON.TransformNode("botRoot", scene);
+
+      const bodyMat = new BABYLON.StandardMaterial("bodyMat", scene);
+      bodyMat.diffuseColor = new BABYLON.Color3(0.18, 0.18, 0.18);
+      bodyMat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+      bodyMat.specularPower = 16;
+
+      const capMat = new BABYLON.StandardMaterial("capMat", scene);
+      capMat.diffuseColor = new BABYLON.Color3(0.45, 0.45, 0.45);
+      capMat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+
+      const visorMat = new BABYLON.StandardMaterial("visorMat", scene);
+      visorMat.diffuseColor = new BABYLON.Color3(0.04, 0.04, 0.04);
+      visorMat.specularColor = new BABYLON.Color3(0.6, 0.6, 0.6);
+      visorMat.specularPower = 32;
+
+      const eyeMat = new BABYLON.StandardMaterial("eyeMat", scene);
+      eyeMat.diffuseColor = new BABYLON.Color3(0.0, 0.1, 1.0);
+      eyeMat.emissiveColor = new BABYLON.Color3(0.0, 0.2, 1.0);
+
+      const holoMat = new BABYLON.StandardMaterial("holoMat", scene);
+      holoMat.diffuseColor = new BABYLON.Color3(0.0, 0.9, 0.2);
+      holoMat.emissiveColor = new BABYLON.Color3(0.0, 0.9, 0.2);
+
+      const headGroup = new BABYLON.TransformNode("headGroup", scene);
+      headGroup.parent = botRoot;
+      headGroup.position.y = 0.3;
+
+      const headBase = BABYLON.MeshBuilder.CreateSphere("headBase", { segments: 16, diameter: 2.1 }, scene);
+      headBase.material = bodyMat;
+      headBase.parent = headGroup;
+      headBase.scaling = new BABYLON.Vector3(1.0, 0.9, 1.0);
+
+      const capBrim = BABYLON.MeshBuilder.CreateCylinder("capBrim", { height: 0.3, diameter: 2.0, tessellation: 24 }, scene);
+      capBrim.material = capMat;
+      capBrim.parent = headGroup;
+      capBrim.position.y = 0.85;
+      capBrim.position.z = -0.15;
+      capBrim.scaling = new BABYLON.Vector3(1.1, 1.0, 0.7);
+
+      const capCrown = BABYLON.MeshBuilder.CreateSphere("capCrown", { segments: 16, diameter: 1.5 }, scene);
+      capCrown.material = capMat;
+      capCrown.parent = headGroup;
+      capCrown.position.y = 1.0;
+      capCrown.position.z = -0.15;
+      capCrown.scaling = new BABYLON.Vector3(1.1, 0.4, 0.8);
+
+      const foreheadRingL = BABYLON.MeshBuilder.CreateTorus("foreheadRingL", { diameter: 0.32, thickness: 0.09, tessellation: 16 }, scene);
+      foreheadRingL.material = bodyMat;
+      foreheadRingL.parent = headGroup;
+      foreheadRingL.position.set(-0.16, 0.65, -0.85);
+      foreheadRingL.rotation.x = -Math.PI / 6;
+
+      const foreheadRingR = BABYLON.MeshBuilder.CreateTorus("foreheadRingR", { diameter: 0.32, thickness: 0.09, tessellation: 16 }, scene);
+      foreheadRingR.material = bodyMat;
+      foreheadRingR.parent = headGroup;
+      foreheadRingR.position.set(0.16, 0.65, -0.85);
+      foreheadRingR.rotation.x = -Math.PI / 6;
+
+      const visor = BABYLON.MeshBuilder.CreateBox("visor", { width: 1.7, height: 0.8, depth: 0.25 }, scene);
+      visor.material = visorMat;
+      visor.parent = headGroup;
+      visor.position.z = -0.92;
+      visor.position.y = 0.05;
+
+      const leftEye = BABYLON.MeshBuilder.CreateSphere("leftEye", { segments: 12, diameter: 0.25 }, scene);
+      leftEye.material = eyeMat;
+      leftEye.parent = headGroup;
+      leftEye.position.set(-0.42, 0.05, -1.05);
+      leftEye.scaling = new BABYLON.Vector3(0.9, 1.8, 0.3);
+
+      const rightEye = BABYLON.MeshBuilder.CreateSphere("rightEye", { segments: 12, diameter: 0.25 }, scene);
+      rightEye.material = eyeMat;
+      rightEye.parent = headGroup;
+      rightEye.position.set(0.42, 0.05, -1.05);
+      rightEye.scaling = new BABYLON.Vector3(0.9, 1.8, 0.3);
+
+      const mouthTorus = BABYLON.MeshBuilder.CreateTorus("mouth", { diameter: 0.45, thickness: 0.06, tessellation: 16 }, scene);
+      mouthTorus.material = capMat;
+      mouthTorus.parent = headGroup;
+      mouthTorus.position.set(0, -0.5, -0.82);
+      mouthTorus.rotation.x = Math.PI / 2.5;
+
+      const neck = BABYLON.MeshBuilder.CreateCylinder("neck", { height: 0.5, diameter: 0.7 }, scene);
+      neck.material = bodyMat;
+      neck.parent = botRoot;
+      neck.position.y = -0.6;
+
+      const bodyBase = BABYLON.MeshBuilder.CreateCylinder("bodyBase", { height: 0.8, diameter: 1.8, tessellation: 24 }, scene);
+      bodyBase.material = bodyMat;
+      bodyBase.parent = botRoot;
+      bodyBase.position.y = -1.1;
+      bodyBase.scaling = new BABYLON.Vector3(1.1, 1.0, 0.7);
+
+      const armGroupL = new BABYLON.TransformNode("armGroupL", scene);
+      armGroupL.parent = botRoot;
+      armGroupL.position.set(-1.1, -0.6, 0);
+
+      const shoulderL = BABYLON.MeshBuilder.CreateSphere("shoulderL", { diameter: 0.3 }, scene);
+      shoulderL.material = bodyMat;
+      shoulderL.parent = armGroupL;
+
+      const handL = BABYLON.MeshBuilder.CreateSphere("handL", { diameter: 0.25 }, scene);
+      handL.material = bodyMat;
+      handL.parent = armGroupL;
+      handL.position.set(-0.25, -0.4, 0);
+
+      const armGroupR = new BABYLON.TransformNode("armGroupR", scene);
+      armGroupR.parent = botRoot;
+      armGroupR.position.set(1.1, -0.6, 0);
+
+      const shoulderR = BABYLON.MeshBuilder.CreateSphere("shoulderR", { diameter: 0.3 }, scene);
+      shoulderR.material = bodyMat;
+      shoulderR.parent = armGroupR;
+
+      const handR = BABYLON.MeshBuilder.CreateSphere("handR", { diameter: 0.25 }, scene);
+      handR.material = bodyMat;
+      handR.parent = armGroupR;
+      handR.position.set(0.25, -0.4, 0);
+
+      const tablet = BABYLON.MeshBuilder.CreateBox("tablet", { width: 0.8, height: 0.5, depth: 0.04 }, scene);
+      tablet.material = holoMat;
+      tablet.parent = botRoot;
+      tablet.position.set(0, -0.5, -1.1);
+      tablet.rotation.x = -Math.PI / 6;
+      tablet.scaling = BABYLON.Vector3.Zero();
+
+      let time = 0;
+      let eyeScaleY = 1.8;
+      let eyeScaleX = 0.9;
+      let eyePosY = 0.05;
+      let leftEyeRotZ = 0;
+      let rightEyeRotZ = 0;
+
+      scene.registerBeforeRender(() => {
+        time += engine.getDeltaTime() * 0.002;
+        botRoot.position.y = Math.sin(time) * 0.1;
+
+        let targetTabletScale = (botState === "bored") ? 1.0 : 0.0;
+        tablet.scaling.x = BABYLON.Scalar.Lerp(tablet.scaling.x, targetTabletScale, 0.15);
+        tablet.scaling.y = BABYLON.Scalar.Lerp(tablet.scaling.y, targetTabletScale, 0.15);
+        tablet.scaling.z = BABYLON.Scalar.Lerp(tablet.scaling.z, targetTabletScale, 0.15);
+
+        if (botState === "waving") {
+          eyeScaleY = 0.3; eyeScaleX = 1.2; eyePosY = 0.05;
+          leftEyeRotZ = Math.PI / 4.5; rightEyeRotZ = -Math.PI / 4.5;
+          armGroupR.rotation.z = Math.sin(time * 8) * 0.5 - 0.6;
+          armGroupL.rotation.z = 0;
+          headGroup.rotation.x = 0;
+          headGroup.rotation.y = Math.sin(time * 2) * 0.05;
+        } else if (botState === "bored") {
+          eyeScaleY = 0.3; eyeScaleX = 1.2; eyePosY = -0.12;
+          leftEyeRotZ = Math.PI / 5; rightEyeRotZ = -Math.PI / 5;
+          armGroupL.rotation.z = -0.4;
+          armGroupR.rotation.z = 0.4;
+          headGroup.rotation.x = 0.28;
+          headGroup.rotation.y = Math.sin(time) * 0.03;
+        } else if (botState === "typing") {
+          eyeScaleY = 0.6; eyeScaleX = 0.7; eyePosY = -0.15;
+          leftEyeRotZ = 0; rightEyeRotZ = 0;
+          armGroupL.rotation.z = 0; armGroupR.rotation.z = 0;
+          headGroup.rotation.x = 0.18;
+          headGroup.rotation.y = Math.sin(time * 1.5) * 0.04;
+        } else if (botState === "scanning") {
+          eyeScaleY = 1.8; eyeScaleX = 0.9; eyePosY = 0.05;
+          leftEyeRotZ = 0; rightEyeRotZ = 0;
+          armGroupL.rotation.z = 0; armGroupR.rotation.z = 0;
+          headGroup.rotation.x = 0.0;
+          headGroup.rotation.y = Math.sin(time * 3) * 0.25;
+        } else {
+          eyeScaleY = 1.8; eyeScaleX = 0.9; eyePosY = 0.05;
+          leftEyeRotZ = 0; rightEyeRotZ = 0;
+          armGroupL.rotation.z = 0; armGroupR.rotation.z = 0;
+          headGroup.rotation.x = Math.sin(time * 0.5) * 0.04;
+          headGroup.rotation.y = Math.sin(time * 0.8) * 0.12;
+        }
+
+        leftEye.scaling.y = BABYLON.Scalar.Lerp(leftEye.scaling.y, eyeScaleY, 0.25);
+        leftEye.scaling.x = BABYLON.Scalar.Lerp(leftEye.scaling.x, eyeScaleX, 0.25);
+        leftEye.position.y = BABYLON.Scalar.Lerp(leftEye.position.y, eyePosY, 0.25);
+        leftEye.rotation.z = BABYLON.Scalar.Lerp(leftEye.rotation.z, leftEyeRotZ, 0.25);
+        rightEye.scaling.y = BABYLON.Scalar.Lerp(rightEye.scaling.y, eyeScaleY, 0.25);
+        rightEye.scaling.x = BABYLON.Scalar.Lerp(rightEye.scaling.x, eyeScaleX, 0.25);
+        rightEye.position.y = BABYLON.Scalar.Lerp(rightEye.position.y, eyePosY, 0.25);
+        rightEye.rotation.z = BABYLON.Scalar.Lerp(rightEye.rotation.z, rightEyeRotZ, 0.25);
+      });
+
+      engine.runRenderLoop(() => { scene.render(); });
+      const resizeObserver = new ResizeObserver(() => { engine.resize(); });
+      resizeObserver.observe(canvas);
+      enginesList.push({ engine, canvasId });
+      return { engine, scene };
+    }
+
+    function clearDeadEngines() {
+      enginesList.forEach(item => { try { item.engine.dispose(); } catch (e) {} });
+      enginesList = [];
+    }
+
+    function updateCounters() {
+      document.getElementById('words-count-display').textContent = totalWordsMastered.toLocaleString();
+      document.getElementById('sentences-count-display').textContent = totalSentencesIngested.toLocaleString();
+    }
+
+    function renderChatStream() {
+      const welcomeCanvas = document.getElementById('welcome-bot-canvas');
+      if (!welcomeCanvas) {
+        clearDeadEngines();
+        initializeRobotScene('header-bot-canvas', 0.4);
+      }
+      chatStream.innerHTML = '';
+      const session = chats[currentChatId];
+      if (!session || session.messages.length === 0) {
+        const welcomeView = document.createElement('div');
+        welcomeView.className = "flex-1 flex flex-col items-center justify-center px-4 py-8 max-w-2xl mx-auto text-center";
+        welcomeView.innerHTML = `
+          <div class="w-56 h-56 mb-4 bg-zinc-900/40 rounded-full border border-zinc-800 shadow-2xl overflow-hidden relative group">
+            <canvas id="welcome-bot-canvas"></canvas>
+            <div class="absolute bottom-3 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur border border-zinc-800 text-[10px] text-zinc-400 font-mono px-2 py-0.5 rounded-full pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+              Babylon.js v3D Render active
+            </div>
+          </div>
+          <h2 class="font-bold text-2xl text-gpt-text tracking-tight mb-2">InfinityCursor Cognitive Core</h2>
+          <p class="text-sm text-gpt-sub mb-6 max-w-md">Ask me any question. I execute semantic language analysis using real 3D processing workflows.</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full text-left">
+            <button class="prompt-card border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/40 p-4 rounded-xl text-xs transition-all flex flex-col gap-1" data-query="Explain Deep Blue versus Kasparov Match">
+              <span class="font-semibold text-gpt-text">Chess Computation Engine</span>
+              <span class="text-zinc-500">Analyze the historic structural algorithmic system matrices.</span>
+            </button>
+            <button class="prompt-card border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/40 p-4 rounded-xl text-xs transition-all flex flex-col gap-1" data-query="Teach me vocabulary regarding mechanical lock puzzles">
+              <span class="font-semibold text-gpt-text">Mechanical System Lexicons</span>
+              <span class="text-zinc-500">Ingest terminology from multi-axis spatial assemblies.</span>
+            </button>
+          </div>
+        `;
+        chatStream.appendChild(welcomeView);
+        setTimeout(() => {
+          initializeRobotScene('welcome-bot-canvas', 0.95);
+          setBotState("waving");
+          setTimeout(() => setBotState("idle"), 2500);
+        }, 50);
+        document.querySelectorAll('.prompt-card').forEach(card => {
+          card.addEventListener('click', () => { dispatchUserQuery(card.getAttribute('data-query')); });
+        });
+        return;
+      }
+      session.messages.forEach((msg) => {
+        const bubbleRow = document.createElement('div');
+        const isUser = (msg.role === 'user');
+        bubbleRow.className = `w-full border-b border-zinc-800/40 py-6 ${isUser ? 'bg-transparent' : 'bg-zinc-800/20'}`;
+        const innerContainer = document.createElement('div');
+        innerContainer.className = "max-w-3xl mx-auto px-4 flex gap-4";
+        const avatar = document.createElement('div');
+        avatar.className = `w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 shadow ${isUser ? 'bg-zinc-700 text-zinc-200' : 'bg-zinc-900 border border-zinc-800 text-emerald-400 font-mono text-[10px]'}`;
+        avatar.textContent = isUser ? 'U' : '3D';
+        const messageBlock = document.createElement('div');
+        messageBlock.className = "flex-1 text-sm leading-relaxed text-gpt-text font-sans space-y-4 break-words";
+        messageBlock.innerHTML = msg.content;
+        innerContainer.appendChild(avatar);
+        innerContainer.appendChild(messageBlock);
+        bubbleRow.appendChild(innerContainer);
+        chatStream.appendChild(bubbleRow);
+      });
+      chatStream.scrollTop = chatStream.scrollHeight;
+    }
+
+    let synapticMemory = [
+      "Quantum processing accelerates cognitive alignment.",
+      "The system synthesizes data into a cohesive neural architecture.",
+      "Recursive feedback loops optimize the core logic structure.",
+      "infinitycursor ai is a specialized cognitive assistant powered by neural spatial logic."
+    ];
+
+    function learnFromContext(text) {
+      if (!text) return;
+      const sentences = text.match(/[^.!?]+[.!?]+/g);
+      if (sentences) {
+        let addedCount = 0;
+        sentences.forEach(s => {
+          const cleanSentence = s.trim().replace(/\s+/g, ' ');
+          if (cleanSentence.length > 20 && !synapticMemory.includes(cleanSentence)) {
+            synapticMemory.push(cleanSentence);
+            addedCount++;
+          }
+        });
+        const words = text.match(/\b\w+\b/g);
+        if (words) totalWordsMastered += words.length;
+        totalSentencesIngested += addedCount;
+        updateCounters();
+      }
+    }
+
+    function generateComplexAnswer(userQuery, newlyLearnedText = "") {
+      const queryWords = userQuery.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      
+      let coreSentences = [];
+      if (newlyLearnedText) {
+        const newSentences = newlyLearnedText.match(/[^.!?]+[.!?]+/g);
+        if (newSentences) {
+           coreSentences = newSentences.map(s => s.trim().replace(/\s+/g, ' ')).filter(s => s.length > 20).slice(0, 2);
+        }
+      }
+
+      let relevantSentences = [];
+      synapticMemory.forEach(sentence => {
+        let matchScore = 0;
+        queryWords.forEach(qw => {
+          if (sentence.toLowerCase().includes(qw)) matchScore++;
+        });
+        if (matchScore > 0 && !coreSentences.includes(sentence)) {
+          relevantSentences.push({ sentence, matchScore });
+        }
+      });
+
+      relevantSentences.sort((a, b) => b.matchScore - a.matchScore);
+      
+      let memorySelected = relevantSentences.slice(0, 3).map(obj => obj.sentence);
+      let finalSentences = [...coreSentences, ...memorySelected];
+      
+      finalSentences = [...new Set(finalSentences)].slice(0, 4);
+
+      if (finalSentences.length === 0) {
+        return "<p class='mb-4 text-gpt-text'>I have searched external nodes and my internal memory, but I lack sufficient data to form a definitive conclusion. Please provide more context.</p>";
+      }
+
+      let paragraph1 = `${finalSentences[0]} ${finalSentences.length > 1 ? finalSentences[1] : ''}`;
+      let paragraph2 = finalSentences.length > 2 ? `${finalSentences[2]} ${finalSentences.length > 3 ? finalSentences[3] : ''}` : `My architecture will recursively map this new information to stabilize the neural network for future analysis.`;
+
+      const googleLink = `<div class="mt-4 p-3 bg-zinc-900/50 rounded-xl border border-zinc-800 flex items-center justify-between"><div class="flex flex-col"><span class="text-[10px] text-zinc-500 uppercase font-mono">Deep Search Mode</span><span class="text-xs font-semibold">Exhaustive Google Synthesis</span></div><a href="https://www.google.com/search?q=${encodeURIComponent(userQuery)}+infinitycursor&udm=14" class="px-3 py-1 bg-white text-black text-[10px] font-bold rounded-lg hover:bg-zinc-200">Execute Google Search</a></div>`;
+
+      return `<p class='mb-4 text-gpt-text'>${paragraph1.trim()}</p><p class='mb-4 text-gpt-text'>${paragraph2.trim()}</p>${googleLink}`;
+    }
+
+    async function dispatchUserQuery(text) {
+      if (!text.trim()) return;
+      const session = chats[currentChatId];
+      if (!session) return;
+      session.messages.push({ role: 'user', content: text });
+      if (session.title === 'New chat') { session.title = text.length > 20 ? text.substring(0, 20) + '...' : text; }
+      renderHistoryList(); renderChatStream();
+      userInput.value = ''; userInput.style.height = '36px'; sendBtn.disabled = true; setBotState("scanning");
+      const loadingRow = document.createElement('div');
+      loadingRow.className = "w-full border-b border-zinc-800/40 py-6 bg-zinc-800/20";
+      loadingRow.innerHTML = `<div class="max-w-3xl mx-auto px-4 flex gap-4"><div class="w-9 h-9 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center font-mono text-[10px] text-zinc-500 animate-spin">⌖</div><div class="flex flex-col gap-2 w-full mt-1"><span class="text-xs text-zinc-500 font-mono">Thinking...</span><div class="h-2 w-32 bg-zinc-800 rounded animate-pulse"></div></div></div>`;
+      chatStream.appendChild(loadingRow);
+      chatStream.scrollTop = chatStream.scrollHeight;
+      try {
+        let wikiData = "";
+        try {
+          const searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(text)}&utf8=&format=json&origin=*`);
+          const sJson = await searchRes.json();
+          if (sJson.query?.search?.length > 0) {
+            const title = sJson.query.search[0].title;
+            const contentRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(title)}&format=json&origin=*`);
+            const cJson = await contentRes.json();
+            const pages = cJson.query.pages;
+            wikiData = pages[Object.keys(pages)[0]].extract || "";
+          }
+        } catch (e) {}
+        
+        learnFromContext(wikiData);
+        learnFromContext(text + ". ");
+        
+        const outputHtml = generateComplexAnswer(text, wikiData);
+        
+        session.messages.push({ role: 'ai', content: outputHtml });
+        updateCounters();
+      } catch (e) {
+        session.messages.push({ role: 'ai', content: `<p class="text-xs font-mono text-red-400">Pipeline latency event. Babylon workspace re-synchronized successfully.</p>` });
+      } finally {
+        loadingRow.remove(); setBotState("waving"); renderChatStream(); resetBoredomTimer();
+        setTimeout(() => { if (botState === "waving") setBotState("idle"); }, 2000);
+      }
+    }
+
+    function renderHistoryList() {
+      historyContainer.innerHTML = '';
+      Object.keys(chats).reverse().forEach(id => {
+        const item = document.createElement('div');
+        const isActive = (id === currentChatId);
+        item.className = `px-3 py-2 rounded-lg cursor-pointer text-xs font-medium truncate transition-all ${isActive ? 'bg-zinc-800 text-gpt-text border-l-2 border-emerald-500 pl-2' : 'text-zinc-400 hover:bg-zinc-900'}`;
+        item.innerHTML = `<span>${chats[id].title}</span>`;
+        item.addEventListener('click', () => { currentChatId = id; renderHistoryList(); renderChatStream(); toggleSidebar(false); setBotState("waving"); setTimeout(() => { if (botState === "waving") setBotState("idle"); }, 1500); });
+        historyContainer.appendChild(item);
+      });
+    }
+
+    userInput.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px'; sendBtn.disabled = !this.value.trim(); setBotState(this.value.trim() ? "typing" : "idle"); resetBoredomTimer(); });
+    userInput.addEventListener('focus', () => { setBotState("typing"); resetBoredomTimer(); });
+    userInput.addEventListener('blur', () => { setBotState("idle"); resetBoredomTimer(); });
+    window.addEventListener('mousemove', resetBoredomTimer);
+    window.addEventListener('touchstart', resetBoredomTimer);
+    window.addEventListener('keydown', resetBoredomTimer);
+    sendBtn.addEventListener('click', () => dispatchUserQuery(userInput.value));
+    userInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && userInput.value.trim()) { e.preventDefault(); dispatchUserQuery(userInput.value); } });
+    newChatBtn.addEventListener('click', () => { currentChatId = 'session-' + Math.random().toString(36).substring(2, 9); chats[currentChatId] = { title: 'New chat', messages: [] }; renderHistoryList(); renderChatStream(); setBotState("waving"); setTimeout(() => { if (botState === "waving") setBotState("idle"); }, 2000); });
+    clearWorkspaceBtn.addEventListener('click', () => { if (chats[currentChatId]) { chats[currentChatId].messages = []; chats[currentChatId].title = 'New chat'; renderHistoryList(); renderChatStream(); } });
+    menuBtn.addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); sidebarOverlay.classList.remove('hidden'); });
+    sidebarOverlay.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); sidebarOverlay.classList.add('hidden'); });
+    
+    function toggleSidebar(force) {
+        if (force === false) {
+             sidebar.classList.add('-translate-x-full');
+             sidebarOverlay.classList.add('hidden');
+        }
+    }
+
+    window.onload = function() {
+      currentChatId = 'session-init';
+      chats[currentChatId] = { title: 'New chat', messages: [] };
+      renderHistoryList(); renderChatStream(); updateCounters(); resetBoredomTimer();
+    };
+  </script>
+</body>
+</html>
