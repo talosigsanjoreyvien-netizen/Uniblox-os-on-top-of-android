@@ -321,7 +321,7 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
         "system32/data.data.txt",
         "system32/drivers.sys.uea.txt",
         "system32/main.uea.txt",
-        "system32/main_activity.uea.txt",
+        "system32/main.uniblox_os_activity.uea.txt",
         "system32/system.executable.uea.txt",
         "packages/uniblox-os-datazip.code-workspace.txt",
         "packages/uniblox.audio.sound.effects.upk.txt",
@@ -1043,37 +1043,44 @@ fun WebViewWindow(
     val context = LocalContext.current
     Surface(
         modifier = Modifier.fillMaxSize(),
-        shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp),
+        shape = if (isFullscreen || app.packageName == "system.explorer") RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp),
         color = Color.White,
-        border = if (isFullscreen) null else BorderStroke(1.dp, Color.Gray.copy(alpha = 0.2f)),
-        shadowElevation = 8.dp
+        border = if (isFullscreen || app.packageName == "system.explorer") null else BorderStroke(1.dp, Color.Gray.copy(alpha = 0.2f)),
+        shadowElevation = if (app.packageName == "system.explorer") 0.dp else 8.dp
     ) {
         Column {
-            Surface(
-                modifier = Modifier.fillMaxWidth().height(40.dp),
-                color = Color(0xFFF0F0F0),
-                shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            if (app.packageName != "system.explorer") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().height(40.dp),
+                    color = Color(0xFFF0F0F0),
+                    shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = null, modifier = Modifier.size(20.dp))
-                        Text(text = app.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.DarkGray)
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(onClick = onFullscreenToggle, modifier = Modifier.size(28.dp)) {
-                            Icon(if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.DarkGray, modifier = Modifier.size(18.dp))
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Image(bitmap = app.icon.toBitmap().asImageBitmap(), contentDescription = null, modifier = Modifier.size(20.dp))
+                            Text(text = app.name, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.DarkGray)
                         }
-                        IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.DarkGray, modifier = Modifier.size(18.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(onClick = onFullscreenToggle, modifier = Modifier.size(28.dp)) {
+                                Icon(if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, contentDescription = "Fullscreen", tint = Color.DarkGray, modifier = Modifier.size(18.dp))
+                            }
+                            IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.DarkGray, modifier = Modifier.size(18.dp))
+                            }
                         }
                     }
                 }
             }
             Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+                if (app.packageName == "system.explorer" && !isFullscreen) {
+                    IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.LightGray)
+                    }
+                }
                 when (app.packageName) {
                     "system.utility.trash" -> {
                         Column(
@@ -1093,14 +1100,19 @@ fun WebViewWindow(
                     "system.explorer" -> {
                         val systemDir = remember { context.filesDir.resolve("uniblox-os-datazip") }
                         var currentDir by remember { mutableStateOf(systemDir) }
+                        var showHidden by remember { mutableStateOf(false) }
                         val isCorrupted = remember(currentDir) { !systemDir.resolve("system32/data.data.txt").exists() }
                         var selectedItem by remember { mutableStateOf<String?>(null) }
                         var showMenu by remember { mutableStateOf(false) }
                         var menuLevel by remember { mutableStateOf(0) } // 0: Open, 1: Administrator, 2: System Files
                         var fileContentToShow by remember { mutableStateOf<String?>(null) }
 
-                        val items = remember(currentDir) {
-                            currentDir.listFiles()?.toList()?.sortedWith(compareBy({ !it.isDirectory }, { it.name })) ?: emptyList()
+                        val items = remember(currentDir, showHidden) {
+                            currentDir.listFiles()?.filter {
+                                if (!showHidden && currentDir == systemDir) {
+                                    it.name != "system32" && it.name != "packages" && !it.name.startsWith(".")
+                                } else true
+                            }?.toList()?.sortedWith(compareBy({ !it.isDirectory }, { it.name })) ?: emptyList()
                         }
 
                         if (fileContentToShow != null) {
@@ -1131,7 +1143,15 @@ fun WebViewWindow(
                                     Text("FS ERROR: system32 CORRUPTED", color = Color.Red)
                                 }
 
-                                Box {
+                                Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onLongPress = {
+                                            selectedItem = null
+                                            menuLevel = 0
+                                            showMenu = true
+                                        }
+                                    )
+                                }) {
                                     Column {
                                         items.forEach { file ->
                                             Row(
@@ -1157,7 +1177,7 @@ fun WebViewWindow(
                                                 Icon(
                                                     if (file.isDirectory) Icons.Default.Folder else Icons.Default.Description,
                                                     contentDescription = null,
-                                                    tint = Color.Gray
+                                                    tint = if (!showHidden && (file.name == "system32" || file.name == "packages")) Color.Gray.copy(alpha = 0.3f) else Color.Gray
                                                 )
                                                 Spacer(modifier = Modifier.width(12.dp))
                                                 Text(file.name)
@@ -1167,7 +1187,10 @@ fun WebViewWindow(
 
                                     DropdownMenu(
                                         expanded = showMenu,
-                                        onDismissRequest = { showMenu = false }
+                                        onDismissRequest = { 
+                                            showMenu = false
+                                            menuLevel = 0
+                                        }
                                     ) {
                                         when (menuLevel) {
                                             0 -> {
@@ -1187,15 +1210,9 @@ fun WebViewWindow(
                                                     text = { Text("System Files") },
                                                     onClick = {
                                                         showMenu = false
-                                                        val fileName = selectedItem?.removeSuffix("/") ?: ""
-                                                        val file = currentDir.resolve(fileName)
-                                                        val targetFile = if (file.isDirectory) file.resolve("data.data.txt") else file
-                                                        
-                                                        fileContentToShow = if (targetFile.exists()) {
-                                                            targetFile.readText()
-                                                        } else {
-                                                            "Error: 0x80041001 Access Denied to /${fileName}"
-                                                        }
+                                                        showHidden = true
+                                                        currentDir = systemDir.resolve("system32")
+                                                        menuLevel = 0
                                                     }
                                                 )
                                             }
