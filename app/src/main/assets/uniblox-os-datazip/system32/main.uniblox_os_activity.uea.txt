@@ -1,3 +1,0 @@
-mainactivity.activity{
-    java.vm.default.os_runtime : android.jvm; kotlin
-}

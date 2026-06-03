@@ -1,5 +1,0 @@
-uniblox.webpack.extend_pack {
-    import unibloxwebpack from http://chrome.data.webpack ;
-    import uniblox from https://uniblox-fun.vercel.app/null ;
-}
-export default fuction null;

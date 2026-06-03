@@ -1,5 +1,0 @@
-drivers.system.uea {
-    storage.driver.v1: "disk.sys",
-    network.driver.v2: "eth.sys",
-    gpu.driver.nvidia: "nv.sys"
-}

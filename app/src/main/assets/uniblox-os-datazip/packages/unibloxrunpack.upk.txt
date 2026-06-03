@@ -1,5 +1,0 @@
-uniblox.runpack.extend_pack{
-    import runtime from /system32/data.data/
-    import uniblox from https://uniblox-fun.vercel.app/null
-}
-export default function null;

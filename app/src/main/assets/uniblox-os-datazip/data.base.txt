@@ -1,5 +1,0 @@
-function define execute.database.export() {
-    android.database.save: /data/datbase/;
-}
-set export function.function: execute.database.export()
-export default base  execute.datbase.export();

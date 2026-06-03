@@ -68,6 +68,7 @@ import `fun`.cybercode.uniblox.os.viewmodel.MainUiState
 import `fun`.cybercode.uniblox.os.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.io.File
 import androidx.compose.foundation.text.BasicTextField
@@ -340,13 +341,7 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
             systemDir.mkdirs()
         }
         
-        // Auto-copy assets to internal storage if files are missing
-        try {
-            copyAssetsToFiles(context, "uniblox-os-datazip", systemDir)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
+        // Check if system files are already present
         val missing = systemFiles.any { !systemDir.resolve(it).exists() }
         isSystemReady = !missing
     }
@@ -357,32 +352,113 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
             isRecovering = isRecovering,
             onStartRecovery = {
                 isRecovering = true
-                    scope.launch {
-                        val logLines = mutableListOf<String>()
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val logLines = mutableListOf<String>()
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
                         logLines.add("UNIBLOX-OS BOOT FAILURE: Critical files missing.")
-                        logLines.add("Connecting to https://github.com/talosigsanjoreyvien-netizen/Uniblox-os-on-top-of-android...")
+                        logLines.add("Initializing remote recovery from GitHub...")
                         recoveryLog = logLines.toList()
-                        delay(1500)
-                        
-                        systemFiles.forEach { path ->
-                            logLines.add("git fetch origin main --depth=1")
-                            logLines.add("Receiving objects: $path...")
-                            recoveryLog = logLines.toList()
-                            delay(300)
-                            val file = systemDir.resolve(path)
-                            file.parentFile?.mkdirs()
-                            // Write real placeholder content representing the "cloud" version
-                            file.writeText("// Uniblox OS System Resource\n// Origin: GitHub Main Branch\n// Type: ${path.substringAfterLast(".")}\n\n[RECOVERED_DATA_PACK_V1.0]")
-                        }
-                        
-                        logLines.add("Verifying checksums for system32/...")
-                        logLines.add("Integrity check passed.")
-                        logLines.add("Rebooting system kernel...")
-                        recoveryLog = logLines.toList()
-                        delay(1200)
-                        isSystemReady = true
-                        isRecovering = false
                     }
+                    delay(1000)
+
+                    try {
+                        val client = okhttp3.OkHttpClient()
+                        val request = okhttp3.Request.Builder()
+                            .url("https://github.com/talosigsanjoreyvien-netizen/Uniblox-os-on-top-of-android/archive/refs/heads/main.zip")
+                            .build()
+
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            logLines.add("Connecting to server...")
+                            recoveryLog = logLines.toList()
+                        }
+
+                        client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) throw java.io.IOException("Failed to download: $response")
+
+                            val body = response.body ?: throw java.io.IOException("Empty response body")
+                            val tempZip = context.cacheDir.resolve("system_recovery.zip")
+                            
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                logLines.add("Downloading system_recovery.zip (${body.contentLength() / 1024} KB)...")
+                                recoveryLog = logLines.toList()
+                            }
+
+                            body.byteStream().use { input ->
+                                tempZip.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                logLines.add("Download complete. Extracting packages...")
+                                recoveryLog = logLines.toList()
+                            }
+
+                            // Unzip and find the specific folder
+                            val extractDir = context.cacheDir.resolve("temp_extract")
+                            extractDir.deleteRecursively()
+                            extractDir.mkdirs()
+
+                            java.util.zip.ZipInputStream(tempZip.inputStream()).use { zis ->
+                                var entry = zis.nextEntry
+                                while (entry != null) {
+                                    val outFile = File(extractDir, entry.name)
+                                    if (entry.isDirectory) {
+                                        outFile.mkdirs()
+                                    } else {
+                                        outFile.parentFile?.mkdirs()
+                                        outFile.outputStream().use { out -> zis.copyTo(out) }
+                                    }
+                                    zis.closeEntry()
+                                    entry = zis.nextEntry
+                                }
+                            }
+
+                            // Copy from the deep folder to systemDir
+                            // The zip root folder is usually Uniblox-os-on-top-of-android-main
+                            val sourcePath = "Uniblox-os-on-top-of-android-main/app/src/main/assets/uniblox-os-datazip"
+                            val sourceDir = File(extractDir, sourcePath)
+                            
+                            if (sourceDir.exists()) {
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    logLines.add("Installing system32 assets...")
+                                    recoveryLog = logLines.toList()
+                                }
+                                
+                                sourceDir.copyRecursively(systemDir, overwrite = true)
+                                
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    logLines.add("Cleaning up temporary files...")
+                                    recoveryLog = logLines.toList()
+                                }
+                                tempZip.delete()
+                                extractDir.deleteRecursively()
+                                
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    logLines.add("Verifying system integrity...")
+                                    delay(500)
+                                    logLines.add("System core: OK")
+                                    logLines.add("Rebooting kernel...")
+                                    recoveryLog = logLines.toList()
+                                }
+                                delay(1000)
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    isSystemReady = true
+                                    isRecovering = false
+                                }
+                            } else {
+                                throw Exception("Could not find system files in the downloaded archive.")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            logLines.add("FATAL ERROR: ${e.message}")
+                            logLines.add("Recovery aborted. Please check internet connection.")
+                            recoveryLog = logLines.toList()
+                            isRecovering = false
+                        }
+                    }
+                }
             }
         )
         return

@@ -1,5 +1,0 @@
-data.assets.uea {
-    images: ["android.default.storage" "null;"],
-    sounds: ["default.os.sounds"],
-    videos: ["default.null"]
-}

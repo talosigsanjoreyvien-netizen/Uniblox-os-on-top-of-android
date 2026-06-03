@@ -1,3 +1,0 @@
-uniblox.package.pack {
-    use.android_vpu.cpu.gpu
-}
