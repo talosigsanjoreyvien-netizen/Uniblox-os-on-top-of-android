@@ -1,0 +1,3 @@
+uniblox.package.pack {
+    sound.property: use android.property ;
+}

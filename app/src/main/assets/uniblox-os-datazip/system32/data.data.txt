@@ -1,0 +1,26 @@
+executable.data.data{
+    data.system_data.app_runtime{
+        web
+        kotlin
+        java
+        c++
+        phyton
+        uea
+        upk
+        apk
+        exe
+        xml
+        sl
+    }
+    data.system_data.assets{
+        null;
+        null;
+        data;
+        data.assets;
+    }
+    data.system_data.keyboard.keys{
+        q w e r t y u i o p a s d f g h j k l z x c v b n m
+        shift backspace , . enter symbols.android emojis.android 
+    }
+    
+}

@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [OSSettings::class], version = 1, exportSchema = false)
+@Database(entities = [OSSettings::class, DesktopConfig::class, WebApp::class, WidgetConfig::class], version = 3, exportSchema = false)
 abstract class OSDatabase : RoomDatabase() {
     abstract fun osDao(): OSDao
 
@@ -19,7 +19,9 @@ abstract class OSDatabase : RoomDatabase() {
                     context.applicationContext,
                     OSDatabase::class.java,
                     "os_database"
-                ).build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

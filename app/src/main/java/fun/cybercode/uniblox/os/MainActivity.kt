@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,8 +67,24 @@ import `fun`.cybercode.uniblox.os.R
 import `fun`.cybercode.uniblox.os.viewmodel.MainUiState
 import `fun`.cybercode.uniblox.os.ui.theme.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.io.File
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.DpOffset
 import java.util.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+import `fun`.cybercode.uniblox.os.viewmodel.DesktopUiState
+import `fun`.cybercode.uniblox.os.data.DesktopConfig
+import `fun`.cybercode.uniblox.os.data.WebApp
+import `fun`.cybercode.uniblox.os.data.WidgetConfig
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,6 +104,185 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 val mainViewModel: MainViewModel = viewModel(factory = viewModelFactory)
                 UnibloxOSApp(mainViewModel)
+            }
+        }
+    }
+}
+
+@Composable
+fun SystemTerminal(systemDir: File) {
+    var input by remember { mutableStateOf("") }
+    var output by remember { mutableStateOf(listOf(
+        "uniblox-os uea shell v1.0",
+        "authenticated as admin",
+        "> loading system32/config.sys.uea.txt...",
+        "> music: true, language: en",
+        "> checking /uniblox-os-datazip/...",
+        "Welcome. Type 'help' for commands."
+    )) }
+    var stagedFiles by remember { mutableStateOf(setOf<String>()) }
+    val scope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(output.size) {
+        scrollState.animateScrollTo(scrollState.maxValue)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .padding(16.dp)
+            .verticalScroll(scrollState)
+    ) {
+        output.forEach { line ->
+            Text(line, color = Color(0xFF00FF00), style = MaterialTheme.typography.labelSmall)
+        }
+        
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("$ ", color = Color(0xFF00FF00), style = MaterialTheme.typography.labelSmall)
+            BasicTextField(
+                value = input,
+                onValueChange = { input = it },
+                textStyle = MaterialTheme.typography.labelSmall.copy(color = Color.White),
+                cursorBrush = SolidColor(Color.White),
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    val cmd = input.trim()
+                    if (cmd.isNotEmpty()) {
+                        val newOutput = output.toMutableList()
+                        newOutput.add("$ $cmd")
+                        
+                        when (cmd) {
+                            "help" -> {
+                                newOutput.add("Available commands: help, ls, git status, git add <file>, git commit, git push, clear")
+                            }
+                            "ls" -> {
+                                val files = systemDir.listFiles()?.joinToString("  ") { it.name } ?: "Empty"
+                                newOutput.add(files)
+                            }
+                            "git status" -> {
+                                val allFiles = systemDir.walkTopDown().filter { it.isFile }.map { it.absolutePath.substringAfter("uniblox-os-datazip/") }.toList()
+                                val untracked = allFiles.filter { it !in stagedFiles }
+                                if (stagedFiles.isNotEmpty()) {
+                                    newOutput.add("Changes to be committed:")
+                                    stagedFiles.forEach { newOutput.add("  modified: $it") }
+                                }
+                                if (untracked.isNotEmpty()) {
+                                    newOutput.add("Untracked files:")
+                                    untracked.forEach { newOutput.add("  $it") }
+                                }
+                                if (stagedFiles.isEmpty() && untracked.isEmpty()) {
+                                    newOutput.add("nothing to commit, working tree clean")
+                                }
+                            }
+                            "git add ." -> {
+                                val allFiles = systemDir.walkTopDown().filter { it.isFile }.map { it.absolutePath.substringAfter("uniblox-os-datazip/") }.toSet()
+                                stagedFiles = allFiles
+                                newOutput.add("Status: ${allFiles.size} files added to index.")
+                            }
+                            "git commit" -> {
+                                if (stagedFiles.isEmpty()) {
+                                    newOutput.add("nothing to commit, working tree clean")
+                                } else {
+                                    newOutput.add("[main (root-commit)] push ready. ${stagedFiles.size} files staged.")
+                                    stagedFiles = emptySet()
+                                }
+                            }
+                            "git push" -> {
+                                newOutput.add("Pushing to github.com/talosigsanjoreyvien-netizen/Uniblox-os-on-top-of-android...")
+                                scope.launch {
+                                    delay(1500)
+                                    newOutput.add("Enumerating objects: 104, done.")
+                                    newOutput.add("Counting objects: 100% (104/104), done.")
+                                    newOutput.add("Delta compression using up to 8 threads")
+                                    newOutput.add("Compressing objects: 100% (52/52), done.")
+                                    newOutput.add("Writing objects: 100% (104/104), 12.44 KiB | 2.49 MiB/s, done.")
+                                    newOutput.add("Total 104 (delta 56), reused 0 (delta 0), pack-reused 0")
+                                    newOutput.add("To github.com/talosigsanjoreyvien-netizen/Uniblox-os-on-top-of-android.git")
+                                    newOutput.add("   b4f3e2d..c9a8b7c  main -> main")
+                                    output = newOutput.toList()
+                                }
+                            }
+                            "clear" -> {
+                                newOutput.clear()
+                            }
+                            else -> {
+                                if (cmd.startsWith("git add ")) {
+                                    val fileName = cmd.removePrefix("git add ").trim()
+                                    stagedFiles = stagedFiles + fileName
+                                    newOutput.add("Added $fileName to stage.")
+                                } else {
+                                    newOutput.add("Command not found: $cmd")
+                                }
+                            }
+                        }
+                        output = newOutput.toList()
+                        input = ""
+                    }
+                })
+            )
+        }
+    }
+}
+
+@Composable
+fun RecoveryScreen(
+    log: List<String>,
+    isRecovering: Boolean,
+    onStartRecovery: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                "UNIBLOX RECOVERY CONSOLE",
+                color = Color.Red,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                log.forEach { line ->
+                    Text(
+                        "> $line",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (!isRecovering) {
+                Button(
+                    onClick = onStartRecovery,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("INITIATE SYSTEM REPAIR")
+                }
+            } else {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = Color.White,
+                    trackColor = Color.DarkGray
+                )
             }
         }
     }
@@ -113,12 +309,98 @@ data class AppInfo(
 @Composable
 fun UnibloxOSApp(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
     
+    var isSystemReady by rememberSaveable { mutableStateOf(false) }
+    var recoveryLog by remember { mutableStateOf(listOf<String>()) }
+    var isRecovering by remember { mutableStateOf(false) }
+
+    val systemFiles = listOf(
+        "system32/config.sys.uea.txt",
+        "system32/data.assets.uea.txt",
+        "system32/data.data.txt",
+        "system32/drivers.sys.uea.txt",
+        "system32/main.uea.txt",
+        "system32/main_activity.uea.txt",
+        "system32/system.executable.uea.txt",
+        "packages/uniblox-os-datazip.code-workspace.txt",
+        "packages/uniblox.audio.sound.effects.upk.txt",
+        "packages/uniblox.graphics.renderer.dx11.upk.txt",
+        "packages/unibloxrunpack.upk.txt",
+        "packages/unibloxwebpack.upk.txt",
+        "README.md.txt",
+        "data.base.txt"
+    )
+
+    val context = LocalContext.current
+    val systemDir = remember { context.filesDir.resolve("uniblox-os-datazip") }
+
+    LaunchedEffect(Unit) {
+        if (!systemDir.exists()) {
+            systemDir.mkdirs()
+        }
+        
+        // Auto-copy assets to internal storage if files are missing
+        try {
+            copyAssetsToFiles(context, "uniblox-os-datazip", systemDir)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        val missing = systemFiles.any { !systemDir.resolve(it).exists() }
+        isSystemReady = !missing
+    }
+
+    if (!isSystemReady) {
+        RecoveryScreen(
+            log = recoveryLog,
+            isRecovering = isRecovering,
+            onStartRecovery = {
+                isRecovering = true
+                    scope.launch {
+                        val logLines = mutableListOf<String>()
+                        logLines.add("UNIBLOX-OS BOOT FAILURE: Critical files missing.")
+                        logLines.add("Connecting to https://github.com/talosigsanjoreyvien-netizen/Uniblox-os-on-top-of-android...")
+                        recoveryLog = logLines.toList()
+                        delay(1500)
+                        
+                        systemFiles.forEach { path ->
+                            logLines.add("git fetch origin main --depth=1")
+                            logLines.add("Receiving objects: $path...")
+                            recoveryLog = logLines.toList()
+                            delay(300)
+                            val file = systemDir.resolve(path)
+                            file.parentFile?.mkdirs()
+                            // Write real placeholder content representing the "cloud" version
+                            file.writeText("// Uniblox OS System Resource\n// Origin: GitHub Main Branch\n// Type: ${path.substringAfterLast(".")}\n\n[RECOVERED_DATA_PACK_V1.0]")
+                        }
+                        
+                        logLines.add("Verifying checksums for system32/...")
+                        logLines.add("Integrity check passed.")
+                        logLines.add("Rebooting system kernel...")
+                        recoveryLog = logLines.toList()
+                        delay(1200)
+                        isSystemReady = true
+                        isRecovering = false
+                    }
+            }
+        )
+        return
+    }
+
     // We use a local state for the setup step transitions, 
     // but the final state is determined by the persisted settings.
-    var currentStep by remember { mutableStateOf(SetupStep.SET_DEFAULT) }
-    var userName by remember { mutableStateOf("") }
-    var userCountry by remember { mutableStateOf("") }
+    val isAlreadyHome = remember(context) {
+        val intent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
+        val resolveInfo = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        resolveInfo?.activityInfo?.packageName == context.packageName
+    }
+    
+    var currentStep by rememberSaveable { 
+        mutableStateOf(if (isAlreadyHome) SetupStep.PAGE_1 else SetupStep.SET_DEFAULT) 
+    }
+    var userName by rememberSaveable { mutableStateOf("") }
+    var userCountry by rememberSaveable { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize()) {
         when (val state = uiState) {
@@ -128,11 +410,12 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
                 }
             }
             is MainUiState.Success -> {
-                val settings = state.settings
+                val desktopState = state.desktopState
+                val settings = desktopState.settings
                 if (settings?.isSetupComplete == true) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         AnimatedWallpaper()
-                        DesktopScreen(userName = settings.userName)
+                        DesktopScreen(viewModel = viewModel, desktopState = desktopState)
                     }
                 } else {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -164,7 +447,7 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
                                 SetupStep.HOME -> {
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         AnimatedWallpaper()
-                                        DesktopScreen(userName = userName)
+                                        DesktopScreen(viewModel = viewModel, desktopState = desktopState)
                                     }
                                 }
                             }
@@ -349,17 +632,19 @@ fun SetupPage5(name: String, onNameChange: (String) -> Unit, onNext: () -> Unit)
 }
 
 @Composable
-fun DesktopScreen(userName: String) {
+fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState) {
+    val activeDesktop = desktopState.desktops.firstOrNull { it.isSelected } ?: desktopState.desktops.firstOrNull() ?: DesktopConfig(name = "Default")
+    val userName = desktopState.settings?.userName ?: ""
     val context = LocalContext.current
     val pm = context.packageManager
-    val installedApps = remember {
+    
+    val installedApps = remember(desktopState.webApps, pm) {
         val intents = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
         val appsList = pm.queryIntentActivities(intents, 0).map { resolveInfo ->
             val pkg = resolveInfo.activityInfo.packageName
             val name = resolveInfo.loadLabel(pm).toString()
             val icon = resolveInfo.loadIcon(pm)
             
-            // Mapping for web-capable apps
             val webUrl = when {
                 pkg.contains("youtube") -> "https://www.youtube.com"
                 pkg.contains("facebook") -> "https://www.facebook.com"
@@ -375,19 +660,33 @@ fun DesktopScreen(userName: String) {
             AppInfo(name = name, packageName = pkg, icon = icon, isWeb = webUrl != null, url = webUrl)
         }.toMutableList()
         
-        // Ensure hardcoded web apps have real icons if their packages exist
         fun getIcon(packageName: String): Drawable {
             return try { pm.getApplicationIcon(packageName) } catch (e: Exception) { pm.defaultActivityIcon }
         }
 
-        appsList.add(AppInfo("infinitycursor ai", "com.uniblox.ai.cursor", pm.defaultActivityIcon, true, "file:///android_asset/infinity_cursor.html"))
+        if (appsList.none { it.packageName == "fun.cybercode.uniblox.ai" }) {
+            appsList.add(AppInfo("InfinityCursor AI", "fun.cybercode.uniblox.ai", pm.defaultActivityIcon, true, "about:blank"))
+        }
 
-        if (appsList.none { it.packageName == "com.web.uniblox" }) {
-            appsList.add(AppInfo("uniblox-fun", "com.web.uniblox", getIcon("com.web.uniblox"), true, "https://uniblox-fun.vercel.app"))
+        if (appsList.none { it.packageName == "fun.cybercode.uniblox.store" }) {
+            appsList.add(AppInfo("Uniblox Appstore", "fun.cybercode.uniblox.store", pm.defaultActivityIcon, true, "https://uniblox-fun.vercel.app"))
         }
         
-        if (appsList.none { it.packageName == "com.os.recyclebin" }) {
-            appsList.add(AppInfo("recycle bin", "com.os.recyclebin", getIcon("com.os.recyclebin"), true, "about:blank"))
+        if (appsList.none { it.packageName == "system.utility.trash" }) {
+            appsList.add(AppInfo("Recycle Bin", "system.utility.trash", pm.defaultActivityIcon, true, "about:blank"))
+        }
+
+        if (appsList.none { it.packageName == "system.terminal" }) {
+            appsList.add(AppInfo("Terminal", "system.terminal", pm.defaultActivityIcon, true, "about:blank"))
+        }
+
+        if (appsList.none { it.packageName == "system.explorer" }) {
+            appsList.add(AppInfo("File Explorer", "system.explorer", pm.defaultActivityIcon, true, "about:blank"))
+        }
+
+        // Add user-installed web apps
+        desktopState.webApps.forEach { webApp ->
+            appsList.add(AppInfo(webApp.name, "com.web." + webApp.name.hashCode(), pm.defaultActivityIcon, true, webApp.url))
         }
         
         appsList.sortedBy { it.name }
@@ -398,28 +697,61 @@ fun DesktopScreen(userName: String) {
     var isFullscreen by remember { mutableStateOf(false) }
     var splitRatio by remember { mutableFloatStateOf(0.5f) }
     var isStartMenuOpen by remember { mutableStateOf(false) }
+    
+    var showContextMenu by remember { mutableStateOf(false) }
+    var contextMenuOffset by remember { mutableStateOf(Offset.Zero) }
+    var showCustomizer by remember { mutableStateOf(false) }
+    var showWebAppInstaller by remember { mutableStateOf(false) }
 
-    // Intercept back button to prevent returning to setup and handle window/menu dismissal
     BackHandler {
         if (isStartMenuOpen) {
             isStartMenuOpen = false
         } else if (openWebWindows.isNotEmpty()) {
-            // Close the most recently active window
             openWebWindows = openWebWindows.dropLast(1)
             focusedApp = openWebWindows.lastOrNull()
-        } else {
-            // If no windows/menus are open, we let the system handle it (exit app)
-            // But we don't want to go back to setup because that's not active anymore
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onLongPress = { offset ->
+                        contextMenuOffset = offset
+                        showContextMenu = true
+                    }
+                )
+            }
+    ) {
         val desktopWidth = maxWidth
         
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
-                // Desktop Icons Layer
+                // Widget Layer
+                DesktopWidgetsLayer(
+                    desktopId = activeDesktop.id,
+                    widgets = desktopState.widgets,
+                    isEditMode = desktopState.isEditMode,
+                    installedApps = installedApps,
+                    onMoveWidget = { id, x, y -> viewModel.updateWidgetPosition(id, x, y) },
+                    onDeleteWidget = { viewModel.deleteWidget(it) },
+                    onAppClick = { app ->
+                        if (app.isWeb && app.url != null) {
+                            if (!openWebWindows.contains(app)) {
+                                openWebWindows = openWebWindows + app
+                            }
+                            focusedApp = app
+                        } else {
+                            val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                            if (launchIntent != null) context.startActivity(launchIntent)
+                        }
+                    }
+                )
+
+                // Desktop Icons / App Drawer
                 if (openWebWindows.isEmpty() || !isFullscreen) {
+                    val appsToShow = if (activeDesktop.hasAppDrawer) installedApps else installedApps.take(12)
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(100.dp),
                         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -427,8 +759,8 @@ fun DesktopScreen(userName: String) {
                         verticalArrangement = Arrangement.spacedBy(24.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(installedApps.take(12).size) { index ->
-                            val app = installedApps[index]
+                        items(appsToShow.size) { index ->
+                            val app = appsToShow[index]
                             DesktopIcon(app, index = index) {
                                 if (app.isWeb && app.url != null) {
                                     if (!openWebWindows.contains(app)) {
@@ -450,7 +782,7 @@ fun DesktopScreen(userName: String) {
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(if (isFullscreen) 0.dp else 16.dp)
-                            .padding(bottom = if (isFullscreen) 0.dp else 40.dp), // Leave space for taskbar
+                            .padding(bottom = if (isFullscreen) 0.dp else 40.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         openWebWindows.forEachIndexed { index, app ->
@@ -478,7 +810,6 @@ fun DesktopScreen(userName: String) {
                                 )
                             }
                             
-                            // Add Splitter between first and second window if exactly 2 are open
                             if (openWebWindows.size == 2 && index == 0 && !isFullscreen) {
                                 Box(
                                     modifier = Modifier
@@ -487,8 +818,6 @@ fun DesktopScreen(userName: String) {
                                         .pointerInput(Unit) {
                                             detectDragGestures { change, dragAmount ->
                                                 change.consume()
-                                                val deltaRatio = dragAmount.x / size.width
-                                                // Adjust ratio based on screen width
                                                 val widthPx = desktopWidth.toPx()
                                                 val newRatio = splitRatio + (dragAmount.x / widthPx)
                                                 splitRatio = newRatio.coerceIn(0.2f, 0.8f)
@@ -505,37 +834,42 @@ fun DesktopScreen(userName: String) {
                 }
                 
                 // Start Menu Layer
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = isStartMenuOpen,
-                    enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
-                    modifier = Modifier.align(Alignment.BottomStart)
-                ) {
-                    StartMenu(
-                        apps = installedApps,
-                        userName = userName,
-                        onAppClick = { app ->
-                            isStartMenuOpen = false
-                            if (app.isWeb && app.url != null) {
-                                if (!openWebWindows.contains(app)) {
-                                    openWebWindows = openWebWindows + app
+                if (activeDesktop.hasStartMenu) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isStartMenuOpen,
+                        enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+                        exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+                        modifier = Modifier.align(Alignment.BottomStart)
+                    ) {
+                        StartMenu(
+                            apps = installedApps,
+                            userName = userName,
+                            onAppClick = { app ->
+                                isStartMenuOpen = false
+                                if (app.isWeb && app.url != null) {
+                                    if (!openWebWindows.contains(app)) {
+                                        openWebWindows = openWebWindows + app
+                                    }
+                                    focusedApp = app
+                                } else {
+                                    val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                                    if (launchIntent != null) context.startActivity(launchIntent)
                                 }
-                                focusedApp = app
-                            } else {
-                                val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
-                                if (launchIntent != null) context.startActivity(launchIntent)
-                            }
-                        },
-                        onClose = { isStartMenuOpen = false }
-                    )
+                            },
+                            onPinApp = { app ->
+                                viewModel.addWidget("app", activeDesktop.id, app.packageName)
+                            },
+                            onClose = { isStartMenuOpen = false }
+                        )
+                    }
                 }
             }
             
-            // Taskbar is always at the bottom
             DesktopTaskbar(
-                onStartClick = { isStartMenuOpen = !isStartMenuOpen },
+                onStartClick = { if (activeDesktop.hasStartMenu) isStartMenuOpen = !isStartMenuOpen },
                 activeApps = openWebWindows,
-                onAppClick = { app -> focusedApp = app }
+                onAppClick = { app -> focusedApp = app },
+                showStart = activeDesktop.hasStartMenu
             )
         }
         
@@ -550,6 +884,45 @@ fun DesktopScreen(userName: String) {
                 )
             }
         }
+
+        // Overlay Components
+        if (showContextMenu) {
+            DesktopContextMenu(
+                offset = contextMenuOffset,
+                desktops = desktopState.desktops,
+                isEditMode = desktopState.isEditMode,
+                onDismiss = { showContextMenu = false },
+                onNewDesktop = { viewModel.createDesktop("Desktop ${desktopState.desktops.size + 1}") },
+                onSelectDesktop = { viewModel.selectDesktop(it.id) },
+                onToggleEditMode = { viewModel.toggleEditMode() },
+                onInstallWebApp = { showWebAppInstaller = true },
+                onAddWidget = { type -> viewModel.addWidget(type, activeDesktop.id) },
+                onOpenSystemFiles = {
+                    val explorer = installedApps.find { it.packageName == "system.explorer" }
+                    if (explorer != null) {
+                        if (openWebWindows.none { it.packageName == explorer.packageName }) {
+                            openWebWindows = openWebWindows + explorer
+                        }
+                        focusedApp = explorer
+                    }
+                }
+            )
+        }
+
+        if (showCustomizer) {
+            DesktopCustomizer(
+                desktop = activeDesktop,
+                onUpdate = { viewModel.updateDesktop(it) },
+                onClose = { showCustomizer = false }
+            )
+        }
+
+        if (showWebAppInstaller) {
+            InstallWebAppDialog(
+                onInstall = { name, url -> viewModel.installWebApp(name, url) },
+                onDismiss = { showWebAppInstaller = false }
+            )
+        }
     }
 }
 
@@ -558,6 +931,7 @@ fun StartMenu(
     apps: List<AppInfo>,
     userName: String,
     onAppClick: (AppInfo) -> Unit,
+    onPinApp: (AppInfo) -> Unit,
     onClose: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -571,7 +945,7 @@ fun StartMenu(
                 .fillMaxHeight(0.7f)
                 .clickable(enabled = false) {}, 
             shape = RoundedCornerShape(24.dp),
-            color = Color(0xEE1A1C2E),
+            color = Color(0xEE1A1C3E),
             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
             shadowElevation = 24.dp
         ) {
@@ -597,7 +971,7 @@ fun StartMenu(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("All apps", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.weight(1f))
-                    Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(12.dp))
+                    Text("Long press to pin", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -613,7 +987,12 @@ fun StartMenu(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable { onAppClick(app) }
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = { onAppClick(app) },
+                                        onLongPress = { onPinApp(app) }
+                                    )
+                                }
                                 .padding(4.dp)
                         ) {
                             Image(
@@ -661,6 +1040,7 @@ fun WebViewWindow(
     onClose: () -> Unit,
     onFullscreenToggle: () -> Unit
 ) {
+    val context = LocalContext.current
     Surface(
         modifier = Modifier.fillMaxSize(),
         shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp),
@@ -694,32 +1074,168 @@ fun WebViewWindow(
                 }
             }
             Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
-                if (app.packageName == "com.os.recyclebin") {
-                    // Custom Recycle Bin UI
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(80.dp), tint = Color.Gray)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Recycle Bin is empty", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
-                        Text("All system cache has been purged", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                when (app.packageName) {
+                    "system.utility.trash" -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(80.dp), tint = Color.Gray)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Recycle Bin is empty", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
+                        }
                     }
-                } else {
-                    AndroidView(
-                        factory = { context ->
-                            WebView(context).apply {
-                                webViewClient = WebViewClient()
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.allowFileAccess = true
-                                settings.allowContentAccess = true
-                                loadUrl(app.url ?: "")
+                    "system.terminal" -> {
+                        val systemDir = remember { context.filesDir.resolve("uniblox-os-datazip") }
+                        SystemTerminal(systemDir)
+                    }
+                    "system.explorer" -> {
+                        val systemDir = remember { context.filesDir.resolve("uniblox-os-datazip") }
+                        var currentDir by remember { mutableStateOf(systemDir) }
+                        val isCorrupted = remember(currentDir) { !systemDir.resolve("system32/data.data.txt").exists() }
+                        var selectedItem by remember { mutableStateOf<String?>(null) }
+                        var showMenu by remember { mutableStateOf(false) }
+                        var menuLevel by remember { mutableStateOf(0) } // 0: Open, 1: Administrator, 2: System Files
+                        var fileContentToShow by remember { mutableStateOf<String?>(null) }
+
+                        val items = remember(currentDir) {
+                            currentDir.listFiles()?.toList()?.sortedWith(compareBy({ !it.isDirectory }, { it.name })) ?: emptyList()
+                        }
+
+                        if (fileContentToShow != null) {
+                            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { fileContentToShow = null }) {
+                                        Icon(Icons.Default.ArrowBack, contentDescription = null, tint = Color.White)
+                                    }
+                                    Text(selectedItem ?: "System File", color = Color.White, style = MaterialTheme.typography.titleSmall)
+                                }
+                                HorizontalDivider(color = Color.DarkGray)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(fileContentToShow!!, color = Color(0xFF00FF00), style = MaterialTheme.typography.bodySmall, modifier = Modifier.verticalScroll(rememberScrollState()))
                             }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                        } else {
+                            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (currentDir != systemDir) {
+                                        IconButton(onClick = { currentDir = currentDir.parentFile ?: systemDir }) {
+                                            Icon(Icons.Default.ArrowUpward, contentDescription = "Back")
+                                        }
+                                    }
+                                    Text("Explorer: ${currentDir.absolutePath.substringAfter("uniblox-os-datazip")}", style = MaterialTheme.typography.titleSmall)
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                if (isCorrupted && currentDir.name == "system32") {
+                                    Text("FS ERROR: system32 CORRUPTED", color = Color.Red)
+                                }
+
+                                Box {
+                                    Column {
+                                        items.forEach { file ->
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(8.dp)
+                                                    .clickable {
+                                                        if (file.isDirectory) {
+                                                            currentDir = file
+                                                        }
+                                                    }
+                                                    .pointerInput(Unit) {
+                                                        detectTapGestures(
+                                                            onLongPress = {
+                                                                selectedItem = file.name + (if (file.isDirectory) "/" else "")
+                                                                menuLevel = 0
+                                                                showMenu = true
+                                                            }
+                                                        )
+                                                    }
+                                            ) {
+                                                Icon(
+                                                    if (file.isDirectory) Icons.Default.Folder else Icons.Default.Description,
+                                                    contentDescription = null,
+                                                    tint = Color.Gray
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Text(file.name)
+                                            }
+                                        }
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showMenu,
+                                        onDismissRequest = { showMenu = false }
+                                    ) {
+                                        when (menuLevel) {
+                                            0 -> {
+                                                DropdownMenuItem(
+                                                    text = { Text("Open") },
+                                                    onClick = { menuLevel = 1 }
+                                                )
+                                            }
+                                            1 -> {
+                                                DropdownMenuItem(
+                                                    text = { Text("Administrator") },
+                                                    onClick = { menuLevel = 2 }
+                                                )
+                                            }
+                                            2 -> {
+                                                DropdownMenuItem(
+                                                    text = { Text("System Files") },
+                                                    onClick = {
+                                                        showMenu = false
+                                                        val fileName = selectedItem?.removeSuffix("/") ?: ""
+                                                        val file = currentDir.resolve(fileName)
+                                                        val targetFile = if (file.isDirectory) file.resolve("data.data.txt") else file
+                                                        
+                                                        fileContentToShow = if (targetFile.exists()) {
+                                                            targetFile.readText()
+                                                        } else {
+                                                            "Error: 0x80041001 Access Denied to /${fileName}"
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "fun.cybercode.uniblox.ai" -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(16.dp),
+                            verticalArrangement = Arrangement.Bottom
+                        ) {
+                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                Text("InfinityCursor AI is ready to assist you.", color = Color.Gray)
+                            }
+                            TextField(
+                                value = "", onValueChange = {},
+                                placeholder = { Text("Ask InfinityCursor...") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(24.dp)
+                            )
+                        }
+                    }
+                    else -> {
+                        AndroidView(
+                            factory = { context ->
+                                WebView(context).apply {
+                                    webViewClient = WebViewClient()
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.allowFileAccess = true
+                                    settings.allowContentAccess = true
+                                    loadUrl(app.url ?: "")
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
@@ -730,7 +1246,8 @@ fun WebViewWindow(
 fun DesktopTaskbar(
     onStartClick: () -> Unit,
     activeApps: List<AppInfo>,
-    onAppClick: (AppInfo) -> Unit
+    onAppClick: (AppInfo) -> Unit,
+    showStart: Boolean = true
 ) {
     var isVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { isVisible = true }
@@ -744,24 +1261,26 @@ fun DesktopTaskbar(
             color = Color(0xCC1A1C1E)
         ) {
             Row(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.Blue.copy(alpha = 0.2f))
-                        .clickable { onStartClick() }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OSIcon(size = 32.dp)
-                    Text(
-                        text = "apps",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                if (showStart) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(Color.Blue.copy(alpha = 0.2f))
+                            .clickable { onStartClick() }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OSIcon(size = 32.dp)
+                        Text(
+                            text = "apps",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(24.dp))
                 }
-                Spacer(modifier = Modifier.width(24.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     activeApps.forEach { app ->
                         androidx.compose.animation.AnimatedVisibility(
@@ -997,6 +1516,282 @@ fun StepItem(number: String, title: String, description: String) {
                 Text(text = title, fontWeight = FontWeight.Medium, color = Color(0xFF1D1B20))
                 Text(text = description, style = MaterialTheme.typography.labelSmall, color = Color(0xFF49454F))
             }
+        }
+    }
+}
+
+@Composable
+fun DesktopContextMenu(
+    offset: Offset,
+    desktops: List<DesktopConfig>,
+    isEditMode: Boolean,
+    onDismiss: () -> Unit,
+    onNewDesktop: () -> Unit,
+    onSelectDesktop: (DesktopConfig) -> Unit,
+    onToggleEditMode: () -> Unit,
+    onInstallWebApp: () -> Unit,
+    onAddWidget: (String) -> Unit,
+    onOpenSystemFiles: () -> Unit
+) {
+    var adminLevel by remember { mutableStateOf(0) } // 0: default, 1: admin, 2: sys files
+
+    DropdownMenu(
+        expanded = true,
+        onDismissRequest = onDismiss,
+        offset = androidx.compose.ui.unit.DpOffset(offset.x.dp / 8, 0.dp)
+    ) {
+        if (adminLevel == 0) {
+            DropdownMenuItem(
+                text = { Text("Open") },
+                onClick = { adminLevel = 1 },
+                leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Create New Desktop") },
+            onClick = { onNewDesktop(); onDismiss() },
+            leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
+        )
+        DropdownMenuItem(
+            text = { Text(if (isEditMode) "Save Layout" else "Edit Desktop") },
+            onClick = { onToggleEditMode(); onDismiss() },
+            leadingIcon = { Icon(if (isEditMode) Icons.Default.Save else Icons.Default.Edit, contentDescription = null) }
+        )
+        if (isEditMode) {
+            DropdownMenuItem(
+                text = { Text("Add Wifi Stats") },
+                onClick = { onAddWidget("wifi"); onDismiss() },
+                leadingIcon = { Icon(Icons.Default.Wifi, contentDescription = null) }
+            )
+            DropdownMenuItem(
+                text = { Text("Add Slider") },
+                onClick = { onAddWidget("slider"); onDismiss() },
+                leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null) }
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("Install Web App") },
+            onClick = { onInstallWebApp(); onDismiss() },
+            leadingIcon = { Icon(Icons.Default.Language, contentDescription = null) }
+        )
+        HorizontalDivider()
+        desktops.forEach { desktop ->
+            DropdownMenuItem(
+                text = { Text(desktop.name) },
+                onClick = { onSelectDesktop(desktop); onDismiss() },
+                trailingIcon = { if (desktop.isSelected) Icon(Icons.Default.Check, contentDescription = null) }
+            )
+        }
+    } else if (adminLevel == 1) {
+        DropdownMenuItem(
+            text = { Text("Administrator") },
+            onClick = { adminLevel = 2 },
+            leadingIcon = { Icon(Icons.Default.Security, contentDescription = null) }
+        )
+    } else if (adminLevel == 2) {
+        DropdownMenuItem(
+            text = { Text("System Files") },
+            onClick = { onOpenSystemFiles(); onDismiss() },
+            leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null) }
+        )
+    }
+}
+}
+
+@Composable
+fun DesktopCustomizer(
+    desktop: DesktopConfig,
+    onUpdate: (DesktopConfig) -> Unit,
+    onClose: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Customize Desktop") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Start Menu", modifier = Modifier.weight(1f))
+                    Switch(checked = desktop.hasStartMenu, onCheckedChange = { onUpdate(desktop.copy(hasStartMenu = it)) })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("App Drawer Layer", modifier = Modifier.weight(1f))
+                    Switch(checked = desktop.hasAppDrawer, onCheckedChange = { onUpdate(desktop.copy(hasAppDrawer = it)) })
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onClose) { Text("Done") }
+        }
+    )
+}
+
+@Composable
+fun InstallWebAppDialog(onInstall: (String, String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("https://") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Form Window Web App") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("App Name") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(onClick = { if (name.isNotBlank() && url.isNotBlank()) onInstall(name, url); onDismiss() }) { Text("Install") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun DesktopWidgetsLayer(
+    desktopId: Long,
+    widgets: List<WidgetConfig>,
+    isEditMode: Boolean,
+    installedApps: List<AppInfo>,
+    onMoveWidget: (Long, Float, Float) -> Unit,
+    onDeleteWidget: (WidgetConfig) -> Unit,
+    onAppClick: (AppInfo) -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        for (widget in widgets) {
+            key(widget.id) {
+                val appInfo = if (widget.type == "app") {
+                    installedApps.find { it.packageName == widget.metadata }
+                } else null
+
+                WidgetContainer(
+                    widget = widget,
+                    appInfo = appInfo,
+                    isEditMode = isEditMode,
+                    onMove = { x, y -> onMoveWidget(widget.id, x, y) },
+                    onDelete = { onDeleteWidget(widget) },
+                    onAppClick = { appInfo?.let { onAppClick(it) } }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun WidgetContainer(
+    widget: WidgetConfig,
+    appInfo: AppInfo?,
+    isEditMode: Boolean,
+    onMove: (Float, Float) -> Unit,
+    onDelete: () -> Unit,
+    onAppClick: () -> Unit
+) {
+    var offsetX by remember { mutableFloatStateOf(widget.x) }
+    var offsetY by remember { mutableFloatStateOf(widget.y) }
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+            .then(
+                if (isEditMode) {
+                    Modifier
+                        .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragEnd = { onMove(offsetX, offsetY) }
+                            ) { change, dragAmount ->
+                                change.consume()
+                                offsetX += dragAmount.x
+                                offsetY += dragAmount.y
+                            }
+                        }
+                } else Modifier
+            )
+    ) {
+        when (widget.type) {
+            "wifi" -> WifiStatsWidget()
+            "slider" -> SystemSliderWidget()
+            "app" -> {
+                appInfo?.let { app ->
+                    DesktopIcon(app = app, index = 0, onClick = { if (!isEditMode) onAppClick() })
+                }
+            }
+        }
+        
+        if (isEditMode) {
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(24.dp)
+                    .offset(x = 8.dp, y = (-8).dp)
+                    .clip(CircleShape)
+                    .background(Color.Red.copy(alpha = 0.8f))
+            ) {
+                Icon(Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun WifiStatsWidget() {
+    Surface(
+        color = Color.Black.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+        modifier = Modifier.width(180.dp)
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Default.Wifi, contentDescription = null, tint = Color.Cyan)
+            Column {
+                Text("UNIBLOX-NET", color = Color.White, style = MaterialTheme.typography.labelMedium)
+                Text("Connected • 450Mbps", color = Color.White.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+fun SystemSliderWidget() {
+    var value by remember { mutableFloatStateOf(0.7f) }
+    Surface(
+        color = Color.Black.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+        modifier = Modifier.width(180.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.LightMode, contentDescription = null, tint = Color.Yellow, modifier = Modifier.size(16.dp))
+                Slider(
+                    value = value,
+                    onValueChange = { value = it },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Text("Brightness", color = Color.White.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+private fun copyAssetsToFiles(context: android.content.Context, assetPath: String, targetDir: File) {
+    val assets = context.assets.list(assetPath) ?: return
+    if (assets.isEmpty()) {
+        try {
+            context.assets.open(assetPath).use { input ->
+                targetDir.parentFile?.mkdirs()
+                targetDir.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        } catch (e: Exception) {
+            // Probably a directory or doesn't exist
+        }
+    } else {
+        targetDir.mkdirs()
+        for (asset in assets) {
+            copyAssetsToFiles(context, "$assetPath/$asset", File(targetDir, asset))
         }
     }
 }

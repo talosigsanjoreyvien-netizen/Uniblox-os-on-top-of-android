@@ -1,0 +1,7 @@
+config.system.uea {
+    fullscreen: false,
+    music: true,
+    sound: true,
+    language: "en",
+    version: 1.0
+}
