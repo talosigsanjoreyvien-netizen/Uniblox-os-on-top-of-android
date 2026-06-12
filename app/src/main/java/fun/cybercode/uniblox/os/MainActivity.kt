@@ -86,8 +86,19 @@ import `fun`.cybercode.uniblox.os.viewmodel.DesktopUiState
 import `fun`.cybercode.uniblox.os.data.DesktopConfig
 import `fun`.cybercode.uniblox.os.data.WebApp
 import `fun`.cybercode.uniblox.os.data.WidgetConfig
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioTrack
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Rect
+import kotlinx.coroutines.Dispatchers
 
 class MainActivity : ComponentActivity() {
+    private var fanTrack: AudioTrack? = null
+    private var isFanRunning = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -107,6 +118,86 @@ class MainActivity : ComponentActivity() {
                 UnibloxOSApp(mainViewModel)
             }
         }
+        startFanSound()
+
+        // Turn off the fan after 10 seconds
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            stopFanSound()
+        }, 10000)
+    }
+
+    private fun startFanSound() {
+        if (isFanRunning) return
+        isFanRunning = true
+        
+        Thread {
+            val sampleRate = 44100
+            val bufferSize = AudioTrack.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            
+            fanTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_UNKNOWN)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+
+            val samples = ShortArray(bufferSize)
+            fanTrack?.play()
+            fanTrack?.setVolume(0.20f) // 20% persistent volume
+
+            var lastValue = 0f
+            val alpha = 0.03f // Slightly more air "hiss"
+            var tickSampleCount = 0
+            val samplesPerTick = sampleRate / 480 // Faster ticks (480 per second)
+
+            while (isFanRunning) {
+                for (i in samples.indices) {
+                    // Filtered noise for airflow
+                    val whiteNoise = (Math.random() * 2.0 - 1.0).toFloat()
+                    lastValue = lastValue + alpha * (whiteNoise - lastValue)
+                    
+                    // Mechanical Ticking Motor Sound (Periodic Impulse)
+                    tickSampleCount++
+                    if (tickSampleCount >= samplesPerTick) tickSampleCount = 0
+                    
+                    // Sharp decay envelope for the "tick"
+                    val decay = Math.exp(-0.02 * tickSampleCount).toFloat()
+                    val tick = if (tickSampleCount < 150) decay * (Math.random().toFloat() * 0.6f + 0.4f) else 0f
+                    
+                    // Combine airflow and mechanical ticks - boosted overall gain
+                    val combined = (lastValue * 1.2f + tick * 0.8f) * 0.7f
+                    samples[i] = (combined.coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
+                }
+                fanTrack?.write(samples, 0, samples.size)
+            }
+        }.start()
+    }
+
+    private fun stopFanSound() {
+        isFanRunning = false
+        fanTrack?.stop()
+        fanTrack?.release()
+        fanTrack = null
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopFanSound()
     }
 }
 
@@ -229,51 +320,81 @@ fun SystemTerminal(systemDir: File) {
 }
 
 @Composable
-fun InstallerScreen(
-    log: List<String>,
-    isInstalling: Boolean
+fun BootScreen(
+    status: String,
+    isError: Boolean = false,
+    errorMessage: String? = null
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .padding(24.dp),
+            .background(Color(0xFF1A1A1A)),
         contentAlignment = Alignment.Center
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.Start
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                "UNIBLOX SYSTEM INSTALLER",
-                color = Color.Cyan,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
+            // U/S Logo
+            Box(
+                modifier = Modifier.size(120.dp),
+                contentAlignment = Alignment.Center
             ) {
-                log.forEach { line ->
-                    Text(
-                        "> $line",
-                        color = Color.LightGray,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(vertical = 2.dp)
+                // Blue 'U'
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeWidth = 18.dp.toPx()
+                    val uPath = Path().apply {
+                        moveTo(0f, 0f)
+                        lineTo(0f, size.height - strokeWidth)
+                        arcTo(
+                            rect = Rect(0f, size.height - strokeWidth * 2, strokeWidth * 2, size.height),
+                            startAngleDegrees = 180f,
+                            sweepAngleDegrees = -90f,
+                            forceMoveTo = false
+                        )
+                        lineTo(size.width - strokeWidth, size.height)
+                        arcTo(
+                            rect = Rect(size.width - strokeWidth * 2, size.height - strokeWidth * 2, size.width, size.height),
+                            startAngleDegrees = 90f,
+                            sweepAngleDegrees = -90f,
+                            forceMoveTo = false
+                        )
+                        lineTo(size.width, 0f)
+                    }
+                    drawPath(
+                        path = uPath,
+                        color = Color(0xFF0055FF),
+                        style = Stroke(width = strokeWidth)
                     )
                 }
+                // Black 'S' inside
+                Text(
+                    text = "S",
+                    color = Color.Black,
+                    style = MaterialTheme.typography.displayLarge,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.offset(y = (-4).dp)
+                )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
-            if (isInstalling) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                    color = Color.Cyan,
-                    trackColor = Color.DarkGray
+            Text(
+                text = status,
+                color = if (isError) Color.Red else Color.White,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+
+            if (isError && errorMessage != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = errorMessage,
+                    color = Color.Gray,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 48.dp)
                 )
             }
         }
@@ -295,7 +416,9 @@ data class AppInfo(
     val packageName: String,
     val icon: Drawable,
     val isWeb: Boolean = false,
-    val url: String? = null
+    val url: String? = null,
+    val isUea: Boolean = false,
+    val htmlContent: String? = null
 )
 
 @Composable
@@ -304,8 +427,8 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
     val scope = rememberCoroutineScope()
     
     var isSystemReady by rememberSaveable { mutableStateOf(false) }
-    var recoveryLog by remember { mutableStateOf(listOf<String>()) }
-    var isRecovering by remember { mutableStateOf(false) }
+    var bootStatus by remember { mutableStateOf("booting..") }
+    var bootError by remember { mutableStateOf<String?>(null) }
 
     val systemFiles = listOf(
         "system32/config.sys.uea.txt",
@@ -313,14 +436,13 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
         "system32/data.data.txt",
         "system32/drivers.sys.uea.txt",
         "system32/main.uea.txt",
-        "system32/main.uniblox_os_activity.uea.txt",
-        "system32/system.executable.uea.txt",
+        "system32/main_activity.uea.txt",
+        "system32/system.exexutable.uea.txt",
         "packages/uniblox-os-datazip.code-workspace.txt",
         "packages/uniblox.audio.sound.effects.upk.txt",
         "packages/uniblox.graphics.renderer.dx11.upk.txt",
         "packages/unibloxrunpack.upk.txt",
         "packages/unibloxwebpack.upk.txt",
-        "README.md.txt",
         "data.base.txt"
     )
 
@@ -331,50 +453,42 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
         if (!systemDir.exists()) {
             systemDir.mkdirs()
         }
+        systemDir.resolve("apps").mkdirs()
         
-        val isReady = systemFiles.all { systemDir.resolve(it).exists() }
-        if (!isReady) {
-            isSystemReady = false
-            // Automatic download
-            isRecovering = true
-            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val logLines = mutableListOf<String>()
-                withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    logLines.add("INITIALIZING UNIBLOX-OS...")
-                    logLines.add("System files missing. Fetching core packages...")
-                    recoveryLog = logLines.toList()
-                }
-                delay(1000)
+        // Step 1: Copy from assets as initial sync
+        bootStatus = "syncing system files.."
+        try {
+            copyAssetsToFiles(context, "uniblox-os-datazip", systemDir)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
-                try {
-                    val client = okhttp3.OkHttpClient()
+        // Step 2: Check if files are still missing
+        var missing = systemFiles.any { !systemDir.resolve(it).exists() }
+        
+        if (missing) {
+            bootStatus = "redownloading system files...."
+            try {
+                withContext(Dispatchers.IO) {
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
                     val request = okhttp3.Request.Builder()
                         .url("https://github.com/talosigsanjoreyvien-netizen/Uniblox-os-on-top-of-android/archive/refs/heads/main.zip")
                         .build()
 
-                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        logLines.add("Connecting to GitHub...")
-                        recoveryLog = logLines.toList()
-                    }
-
                     client.newCall(request).execute().use { response ->
                         if (!response.isSuccessful) throw java.io.IOException("Network error: ${response.code}")
 
-                        val body = response.body ?: throw java.io.IOException("Empty response body")
-                        val tempZip = context.cacheDir.resolve("uniblox_system.zip")
+                        val body = response.body ?: throw java.io.IOException("Empty response")
+                        val tempZip = context.cacheDir.resolve("system_download.zip")
                         
                         body.byteStream().use { input ->
-                            tempZip.outputStream().use { output ->
-                                input.copyTo(output)
-                            }
+                            tempZip.outputStream().use { output -> input.copyTo(output) }
                         }
 
-                        withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            logLines.add("Download successful. Parsing packages...")
-                            recoveryLog = logLines.toList()
-                        }
-
-                        val extractDir = context.cacheDir.resolve("syst_temp")
+                        val extractDir = context.cacheDir.resolve("temp_sys")
                         extractDir.deleteRecursively()
                         extractDir.mkdirs()
 
@@ -393,52 +507,41 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
                             }
                         }
 
-                        val sourcePath = "Uniblox-os-on-top-of-android-main/app/src/main/assets/uniblox-os-datazip"
-                        val sourceDir = File(extractDir, sourcePath)
-                        
+                        val sourceDir = File(extractDir, "Uniblox-os-on-top-of-android-main/app/src/main/assets/uniblox-os-datazip")
                         if (sourceDir.exists()) {
-                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                logLines.add("Copying system32 resources...")
-                                recoveryLog = logLines.toList()
-                            }
-                            
                             sourceDir.copyRecursively(systemDir, overwrite = true)
-                            
                             tempZip.delete()
                             extractDir.deleteRecursively()
-                            
-                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                logLines.add("System integrity verified.")
-                                logLines.add("Booting sequence initiated.")
-                                recoveryLog = logLines.toList()
-                            }
-                            delay(1000)
-                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                isSystemReady = true
-                                isRecovering = false
-                            }
                         } else {
-                            throw Exception("Package structure mismatch.")
+                            throw Exception("Package structure mismatch")
                         }
                     }
-                } catch (e: Exception) {
-                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        logLines.add("ERROR: ${e.message}")
-                        logLines.add("Please ensure stable internet and restart.")
-                        recoveryLog = logLines.toList()
-                        isRecovering = false
-                    }
                 }
+                
+                // Final check
+                missing = systemFiles.any { !systemDir.resolve(it).exists() }
+                if (missing) {
+                    bootError = "System integrity failure after download."
+                } else {
+                    bootStatus = "booting.."
+                    delay(1000)
+                    isSystemReady = true
+                }
+            } catch (e: Exception) {
+                bootError = "Recovery failed: ${e.message}"
             }
         } else {
+            bootStatus = "booting.."
+            delay(1000)
             isSystemReady = true
         }
     }
 
     if (!isSystemReady) {
-        InstallerScreen(
-            log = recoveryLog,
-            isInstalling = isRecovering
+        BootScreen(
+            status = bootStatus,
+            isError = bootError != null,
+            errorMessage = bootError
         )
         return
     }
@@ -742,6 +845,33 @@ fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState) {
         // Add user-installed web apps
         desktopState.webApps.forEach { webApp ->
             appsList.add(AppInfo(webApp.name, "com.web." + webApp.name.hashCode(), pm.defaultActivityIcon, true, webApp.url))
+        }
+
+        // Scan for .uea apps in uniblox-os-datazip/apps
+        val systemDir = context.filesDir.resolve("uniblox-os-datazip")
+        val appsDir = systemDir.resolve("apps")
+        if (appsDir.exists()) {
+            appsDir.listFiles()?.filter { it.extension == "uea" }?.forEach { file ->
+                try {
+                    val content = file.readText()
+                    val html = parseUeaContent(content)
+                    if (html != null) {
+                        val appName = file.nameWithoutExtension.split(".").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
+                        appsList.add(
+                            AppInfo(
+                                name = appName,
+                                packageName = "com.uea." + file.nameWithoutExtension,
+                                icon = pm.defaultActivityIcon,
+                                isWeb = true,
+                                isUea = true,
+                                htmlContent = html
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
         
         appsList.sortedBy { it.name }
@@ -1155,7 +1285,7 @@ fun WebViewWindow(
                     "system.explorer" -> {
                         val systemDir = remember { context.filesDir.resolve("uniblox-os-datazip") }
                         var currentDir by remember { mutableStateOf(systemDir) }
-                        var showHidden by remember { mutableStateOf(false) }
+                        var showHidden by remember { mutableStateOf(true) }
                         val isCorrupted = remember(currentDir) { !systemDir.resolve("system32/data.data.txt").exists() }
                         var selectedItem by remember { mutableStateOf<String?>(null) }
                         var showMenu by remember { mutableStateOf(false) }
@@ -1190,7 +1320,8 @@ fun WebViewWindow(
                                             Icon(Icons.Default.ArrowUpward, contentDescription = "Back")
                                         }
                                     }
-                                    Text("Explorer: ${currentDir.absolutePath.substringAfter("uniblox-os-datazip")}", style = MaterialTheme.typography.titleSmall)
+                                    val virtualPath = "/os/data/root" + currentDir.absolutePath.substringAfter("uniblox-os-datazip").let { if (it.isEmpty()) "/" else it }
+                                    Text("Explorer: $virtualPath", style = MaterialTheme.typography.titleSmall)
                                 }
                                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -1217,6 +1348,13 @@ fun WebViewWindow(
                                                     .clickable {
                                                         if (file.isDirectory) {
                                                             currentDir = file
+                                                        } else if (file.extension == "txt" || file.extension == "uea") {
+                                                            try {
+                                                                fileContentToShow = file.readText()
+                                                                selectedItem = file.name
+                                                            } catch (e: Exception) {
+                                                                e.printStackTrace()
+                                                            }
                                                         }
                                                     }
                                                     .pointerInput(Unit) {
@@ -1302,7 +1440,11 @@ fun WebViewWindow(
                                     settings.domStorageEnabled = true
                                     settings.allowFileAccess = true
                                     settings.allowContentAccess = true
-                                    loadUrl(app.url ?: "")
+                                    if (app.isUea && app.htmlContent != null) {
+                                        loadDataWithBaseURL("https://uniblox.local/", app.htmlContent, "text/html", "utf-8", null)
+                                    } else {
+                                        loadUrl(app.url ?: "")
+                                    }
                                 }
                             },
                             modifier = Modifier.fillMaxSize()
@@ -1843,6 +1985,53 @@ fun SystemSliderWidget() {
                 )
             }
             Text("Brightness", color = Color.White.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+private fun parseUeaContent(content: String): String? {
+    val startTag = "<application>"
+    val endTag = "</application.web-app>"
+
+    val startIndex = content.indexOf(startTag)
+    val endIndex = content.lastIndexOf(endTag)
+
+    if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
+        return content.substring(startIndex + startTag.length, endIndex).trim()
+    }
+
+    // Fallback: search for html tags
+    val lowercaseContent = content.lowercase()
+    val htmlStartIndex = lowercaseContent.indexOf("<!doctype html>")
+    if (htmlStartIndex != -1) {
+        return content.substring(htmlStartIndex)
+    }
+
+    val htmlTagIndex = lowercaseContent.indexOf("<html>")
+    if (htmlTagIndex != -1) {
+        return content.substring(htmlTagIndex)
+    }
+
+    return null
+}
+
+private fun copyAssetsToFiles(context: android.content.Context, assetPath: String, targetDir: File) {
+    val assets = context.assets.list(assetPath) ?: return
+    if (assets.isEmpty()) {
+        try {
+            context.assets.open(assetPath).use { input ->
+                targetDir.parentFile?.mkdirs()
+                targetDir.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        } catch (e: Exception) {
+            // Probably a directory or doesn't exist
+        }
+    } else {
+        targetDir.mkdirs()
+        for (asset in assets) {
+            copyAssetsToFiles(context, "$assetPath/$asset", File(targetDir, asset))
         }
     }
 }

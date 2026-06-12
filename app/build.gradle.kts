@@ -8,12 +8,12 @@ plugins {
 
 android {
   namespace = "fun.cybercode.uniblox.os"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 35 // Android 15 SDK matching your tablet
 
   defaultConfig {
     applicationId = "fun.cybercode.uniblox.os"
-    minSdk = 24
-    targetSdk = 36
+    minSdk = 24     // Safe minimum for 64-bit modern ARM architectures
+    targetSdk = 35  // Tells Android 15 to permit modern execution threads
     versionCode = 1
     versionName = "1.0"
 
