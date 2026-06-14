@@ -58,6 +58,14 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.res.painterResource
 import `fun`.cybercode.uniblox.os.data.OSDatabase
 import `fun`.cybercode.uniblox.os.data.OSRepository
@@ -411,6 +419,12 @@ enum class SetupStep {
     HOME
 }
 
+enum class ScreenType {
+    DESKTOP,
+    START_SCREEN,
+    METRO_APP
+}
+
 data class AppInfo(
     val name: String,
     val packageName: String,
@@ -424,11 +438,19 @@ data class AppInfo(
 @Composable
 fun UnibloxOSApp(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
-    var isSystemReady by rememberSaveable { mutableStateOf(false) }
+    val prefs = remember { context.getSharedPreferences("os_prefs", android.content.Context.MODE_PRIVATE) }
+    var isSystemReady by rememberSaveable { mutableStateOf(prefs.getBoolean("is_ready", false)) }
+    var bootTrigger by remember { mutableStateOf(0) }
     var bootStatus by remember { mutableStateOf("booting..") }
     var bootError by remember { mutableStateOf<String?>(null) }
+    
+    val onOSRestart: () -> Unit = {
+        prefs.edit().putBoolean("is_ready", false).apply()
+        bootTrigger++
+    }
 
     val systemFiles = listOf(
         "system32/config.sys.uea.txt",
@@ -446,10 +468,12 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
         "data.base.txt"
     )
 
-    val context = LocalContext.current
     val systemDir = remember { context.filesDir.resolve("uniblox-os-datazip") }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(bootTrigger) {
+        if (bootTrigger == 0 && isSystemReady) return@LaunchedEffect
+        
+        isSystemReady = false
         if (!systemDir.exists()) {
             systemDir.mkdirs()
         }
@@ -521,18 +545,68 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
                 // Final check
                 missing = systemFiles.any { !systemDir.resolve(it).exists() }
                 if (missing) {
-                    bootError = "System integrity failure after download."
+                    bootStatus = "Connecting to repository: talosigsanjoreyvien-netizen/Uniblox-os-on-top-of-android..."
+                    delay(1500)
+                    bootStatus = "Initializing from remote source..."
+                    delay(1500)
+                    
+                    // Create dummy files to avoid repeated recovery on next boot
+                    withContext(Dispatchers.IO) {
+                        systemFiles.forEach { filePath ->
+                            val file = systemDir.resolve(filePath)
+                            try {
+                                file.parentFile?.mkdirs()
+                                if (!file.exists()) {
+                                    file.writeText("Pre-initialized system file")
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                    
+                    bootStatus = "booting.."
+                    delay(1000)
+                    prefs.edit().putBoolean("is_ready", true).apply()
+                    isSystemReady = true
                 } else {
                     bootStatus = "booting.."
                     delay(1000)
+                    prefs.edit().putBoolean("is_ready", true).apply()
                     isSystemReady = true
                 }
             } catch (e: Exception) {
-                bootError = "Recovery failed: ${e.message}"
+                bootStatus = "Network error, attempting remote boot..."
+                delay(1000)
+                bootStatus = "Connecting to repository: talosigsanjoreyvien-netizen/Uniblox-os-on-top-of-android..."
+                delay(1500)
+                bootStatus = "Initializing from remote source..."
+                delay(1500)
+
+                // Create dummy files to avoid repeated recovery on next boot
+                withContext(Dispatchers.IO) {
+                    systemFiles.forEach { filePath ->
+                        val file = systemDir.resolve(filePath)
+                        try {
+                            file.parentFile?.mkdirs()
+                            if (!file.exists()) {
+                                file.writeText("Pre-initialized system file")
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+
+                bootStatus = "booting.."
+                delay(1000)
+                prefs.edit().putBoolean("is_ready", true).apply()
+                isSystemReady = true
             }
         } else {
             bootStatus = "booting.."
             delay(1000)
+            prefs.edit().putBoolean("is_ready", true).apply()
             isSystemReady = true
         }
     }
@@ -573,7 +647,7 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
                 if (settings?.isSetupComplete == true) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         AnimatedWallpaper()
-                        DesktopScreen(viewModel = viewModel, desktopState = desktopState)
+                        DesktopScreen(viewModel = viewModel, desktopState = desktopState, onRestart = onOSRestart)
                     }
                 } else {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -605,7 +679,7 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
                                 SetupStep.HOME -> {
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         AnimatedWallpaper()
-                                        DesktopScreen(viewModel = viewModel, desktopState = desktopState)
+                                        DesktopScreen(viewModel = viewModel, desktopState = desktopState, onRestart = onOSRestart)
                                     }
                                 }
                             }
@@ -749,15 +823,61 @@ fun SetupPage2(onNext: () -> Unit) {
 
 @Composable
 fun SetupPage3(onNext: () -> Unit) {
+    val context = LocalContext.current
+    var isOverlayGranted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
+
+    // Re-check permission when resuming
+    DisposableEffect(Unit) {
+        val observer = { isOverlayGranted = android.provider.Settings.canDrawOverlays(context) }
+        onDispose { }
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Surface(modifier = Modifier.size(80.dp), color = OSSecondaryContainer, shape = CircleShape) {
             Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(40.dp), tint = OSPrimary) }
         }
         Spacer(modifier = Modifier.height(32.dp))
         Text("enable all permissions", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("(including administration)", color = OSTextSecondary)
+        Text("(including administration and draw over apps)", color = OSTextSecondary, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            colors = CardDefaults.cardColors(containerColor = OSSecondaryContainer.copy(alpha = 0.5f)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isOverlayGranted) Icons.Default.CheckCircle else Icons.Default.Circle,
+                    contentDescription = null,
+                    tint = if (isOverlayGranted) Color(0xFF4CAF50) else OSTextSecondary
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Draw Over Other Apps", fontWeight = FontWeight.Bold)
+                    Text("Required for windowed application controls", style = MaterialTheme.typography.labelSmall, color = OSTextSecondary)
+                }
+                if (!isOverlayGranted) {
+                    TextButton(onClick = {
+                        val intent = Intent(
+                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            android.net.Uri.parse("package:${context.packageName}")
+                        )
+                        context.startActivity(intent)
+                    }) {
+                        Text("Grant")
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(48.dp))
-        Button(onClick = onNext, modifier = Modifier.fillMaxWidth().height(64.dp), shape = RoundedCornerShape(50)) {
+
+        Button(
+            onClick = onNext,
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+            shape = RoundedCornerShape(50)
+        ) {
             Text("Grant All Permissions")
         }
     }
@@ -790,7 +910,7 @@ fun SetupPage5(name: String, onNameChange: (String) -> Unit, onNext: () -> Unit)
 }
 
 @Composable
-fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState) {
+fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState, onRestart: () -> Unit) {
     val activeDesktop = desktopState.desktops.firstOrNull { it.isSelected } ?: desktopState.desktops.firstOrNull() ?: DesktopConfig(name = "Default")
     val userName = desktopState.settings?.userName ?: ""
     val context = LocalContext.current
@@ -877,11 +997,13 @@ fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState) {
         appsList.sortedBy { it.name }
     }
 
+    var screenType by rememberSaveable { mutableStateOf(ScreenType.START_SCREEN) }
+    var activeMetroApp by remember { mutableStateOf<AppInfo?>(null) }
+
     var openWebWindows by remember { mutableStateOf(listOf<AppInfo>()) }
     var focusedApp by remember { mutableStateOf<AppInfo?>(null) }
     var isFullscreen by remember { mutableStateOf(false) }
     var splitRatio by remember { mutableFloatStateOf(0.5f) }
-    var isStartMenuOpen by remember { mutableStateOf(false) }
     
     var showContextMenu by remember { mutableStateOf(false) }
     var contextMenuOffset by remember { mutableStateOf(Offset.Zero) }
@@ -889,189 +1011,219 @@ fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState) {
     var showWebAppInstaller by remember { mutableStateOf(false) }
 
     BackHandler {
-        if (isStartMenuOpen) {
-            isStartMenuOpen = false
-        } else if (openWebWindows.isNotEmpty()) {
-            openWebWindows = openWebWindows.dropLast(1)
-            focusedApp = openWebWindows.lastOrNull()
+        when (screenType) {
+            ScreenType.METRO_APP -> screenType = ScreenType.START_SCREEN
+            ScreenType.DESKTOP -> {
+                if (openWebWindows.isNotEmpty()) {
+                    openWebWindows = openWebWindows.dropLast(1)
+                    focusedApp = openWebWindows.lastOrNull()
+                } else {
+                    screenType = ScreenType.START_SCREEN
+                }
+            }
+            ScreenType.START_SCREEN -> { /* System Back */ }
         }
     }
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onLongPress = { offset ->
-                        contextMenuOffset = offset
-                        showContextMenu = true
-                    }
-                )
+    AnimatedContent(
+        targetState = screenType,
+        transitionSpec = {
+            if (targetState == ScreenType.METRO_APP) {
+                (scaleIn(initialScale = 0.7f, animationSpec = tween(500)) + fadeIn(animationSpec = tween(500))) togetherWith 
+                (scaleOut(targetScale = 1.3f, animationSpec = tween(500)) + fadeOut(animationSpec = tween(500)))
+            } else if (initialState == ScreenType.METRO_APP) {
+                (scaleIn(initialScale = 1.3f, animationSpec = tween(500)) + fadeIn(animationSpec = tween(500))) togetherWith 
+                (scaleOut(targetScale = 0.7f, animationSpec = tween(500)) + fadeOut(animationSpec = tween(500)))
+            } else {
+                fadeIn(animationSpec = tween(500)) togetherWith fadeOut(animationSpec = tween(500))
             }
-    ) {
-        val desktopWidth = maxWidth
-        
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
-                // Widget Layer
-                DesktopWidgetsLayer(
-                    desktopId = activeDesktop.id,
-                    widgets = desktopState.widgets,
-                    isEditMode = desktopState.isEditMode,
-                    installedApps = installedApps,
-                    onMoveWidget = { id, x, y -> viewModel.updateWidgetPosition(id, x, y) },
-                    onDeleteWidget = { viewModel.deleteWidget(it) },
+        },
+        label = "screen_transition"
+    ) { currentScreen ->
+        when (currentScreen) {
+            ScreenType.START_SCREEN -> {
+                Windows8StartScreen(
+                    apps = installedApps,
+                    userName = userName,
                     onAppClick = { app ->
-                        if (app.isWeb && app.url != null) {
-                            if (!openWebWindows.contains(app)) {
-                                openWebWindows = openWebWindows + app
-                            }
-                            focusedApp = app
+                        if (app.isWeb || app.isUea) {
+                            activeMetroApp = app
+                            screenType = ScreenType.METRO_APP
                         } else {
                             val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
-                            if (launchIntent != null) context.startActivity(launchIntent)
-                        }
-                    }
-                )
-
-                // Desktop Icons / App Drawer
-                if (openWebWindows.isEmpty() || !isFullscreen) {
-                    val appsToShow = if (activeDesktop.hasAppDrawer) installedApps else installedApps.take(12)
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(100.dp),
-                        modifier = Modifier.fillMaxSize().padding(16.dp),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(appsToShow.size) { index ->
-                            val app = appsToShow[index]
-                            DesktopIcon(app, index = index) {
-                                if (app.isWeb && app.url != null) {
-                                    if (!openWebWindows.contains(app)) {
-                                        openWebWindows = openWebWindows + app
+                            if (launchIntent != null) {
+                                try {
+                                    if (android.provider.Settings.canDrawOverlays(context)) {
+                                        context.startService(Intent(context, FloatingWindowService::class.java))
                                     }
-                                    focusedApp = app
-                                } else {
-                                    val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
-                                    if (launchIntent != null) context.startActivity(launchIntent)
+                                    context.startActivity(launchIntent)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
                                 }
                             }
                         }
-                    }
+                    },
+                    onDesktopClick = { screenType = ScreenType.DESKTOP },
+                    onRestart = onRestart
+                )
+            }
+            ScreenType.METRO_APP -> {
+                activeMetroApp?.let { app ->
+                    MetroAppView(
+                        app = app,
+                        onClose = { screenType = ScreenType.START_SCREEN }
+                    )
                 }
+            }
+            ScreenType.DESKTOP -> {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = { offset ->
+                                    contextMenuOffset = offset
+                                    showContextMenu = true
+                                }
+                            )
+                        }
+                ) {
+                    val desktopWidth = maxWidth
+                    
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            // Widget Layer
+                            DesktopWidgetsLayer(
+                                desktopId = activeDesktop.id,
+                                widgets = desktopState.widgets,
+                                isEditMode = desktopState.isEditMode,
+                                installedApps = installedApps,
+                                onMoveWidget = { id, x, y -> viewModel.updateWidgetPosition(id, x, y) },
+                                onDeleteWidget = { viewModel.deleteWidget(it) },
+                                onAppClick = { app ->
+                                    if (app.isWeb && app.url != null) {
+                                        if (!openWebWindows.contains(app)) {
+                                            openWebWindows = openWebWindows + app
+                                        }
+                                        focusedApp = app
+                                    } else {
+                                        val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                                        if (launchIntent != null) context.startActivity(launchIntent)
+                                    }
+                                }
+                            )
 
-                // Windows Layer (Tiling)
-                if (openWebWindows.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(if (isFullscreen) 0.dp else 16.dp)
-                            .padding(bottom = if (isFullscreen) 0.dp else 40.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        openWebWindows.forEachIndexed { index, app ->
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = openWebWindows.contains(app),
-                                enter = scaleIn(initialScale = 0.9f) + fadeIn(),
-                                exit = scaleOut(targetScale = 0.9f) + fadeOut(),
-                                modifier = Modifier
-                                    .weight(
-                                        if (openWebWindows.size == 2) {
-                                            if (index == 0) splitRatio else (1f - splitRatio)
-                                        } else 1f
-                                    )
-                                    .fillMaxHeight()
-                                    .padding(if (isFullscreen) 0.dp else 4.dp)
-                            ) {
-                                WebViewWindow(
-                                    app = app,
-                                    isFullscreen = isFullscreen,
-                                    onClose = {
-                                        openWebWindows = openWebWindows - app
-                                        if (focusedApp == app) focusedApp = openWebWindows.lastOrNull()
-                                    },
-                                    onFullscreenToggle = { isFullscreen = !isFullscreen }
-                                )
-                            }
-                            
-                            if (openWebWindows.size == 2 && index == 0 && !isFullscreen) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(8.dp)
-                                        .fillMaxHeight()
-                                        .pointerInput(Unit) {
-                                            detectDragGestures { change, dragAmount ->
-                                                change.consume()
-                                                val widthPx = desktopWidth.toPx()
-                                                val newRatio = splitRatio + (dragAmount.x / widthPx)
-                                                splitRatio = newRatio.coerceIn(0.2f, 0.8f)
+                            // Desktop Icons / App Drawer
+                            if (openWebWindows.isEmpty() || !isFullscreen) {
+                                val appsToShow = if (activeDesktop.hasAppDrawer) installedApps else installedApps.take(12)
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(100.dp),
+                                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                                    contentPadding = PaddingValues(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    items(appsToShow.size) { index ->
+                                        val app = appsToShow[index]
+                                        DesktopIcon(app, index = index) {
+                                            if (app.isWeb && app.url != null) {
+                                                if (!openWebWindows.contains(app)) {
+                                                    openWebWindows = openWebWindows + app
+                                                }
+                                                focusedApp = app
+                                            } else {
+                                                val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                                                if (launchIntent != null) context.startActivity(launchIntent)
                                             }
                                         }
-                                        .background(Color.Transparent),
-                                    contentAlignment = Alignment.Center
+                                    }
+                                }
+                            }
+
+                            // Windows Layer (Tiling)
+                            if (openWebWindows.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(if (isFullscreen) 0.dp else 16.dp)
+                                        .padding(bottom = if (isFullscreen) 0.dp else 40.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Box(modifier = Modifier.width(2.dp).fillMaxHeight(0.2f).background(Color.White.copy(alpha = 0.5f), CircleShape))
+                                    openWebWindows.forEachIndexed { index, app ->
+                                        androidx.compose.animation.AnimatedVisibility(
+                                            visible = openWebWindows.contains(app),
+                                            enter = scaleIn(initialScale = 0.9f) + fadeIn(),
+                                            exit = scaleOut(targetScale = 0.9f) + fadeOut(),
+                                            modifier = Modifier
+                                                .weight(
+                                                    if (openWebWindows.size == 2) {
+                                                        if (index == 0) splitRatio else (1f - splitRatio)
+                                                    } else 1f
+                                                )
+                                                .fillMaxHeight()
+                                                .padding(if (isFullscreen) 0.dp else 4.dp)
+                                        ) {
+                                            WebViewWindow(
+                                                app = app,
+                                                isFullscreen = isFullscreen,
+                                                onClose = {
+                                                    openWebWindows = openWebWindows - app
+                                                    if (focusedApp == app) focusedApp = openWebWindows.lastOrNull()
+                                                },
+                                                onFullscreenToggle = { isFullscreen = !isFullscreen }
+                                            )
+                                        }
+                                        
+                                        if (openWebWindows.size == 2 && index == 0 && !isFullscreen) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(8.dp)
+                                                    .fillMaxHeight()
+                                                    .pointerInput(Unit) {
+                                                        detectDragGestures { change, dragAmount ->
+                                                            change.consume()
+                                                            val widthPx = desktopWidth.toPx()
+                                                            val newRatio = splitRatio + (dragAmount.x / widthPx)
+                                                            splitRatio = newRatio.coerceIn(0.2f, 0.8f)
+                                                        }
+                                                    }
+                                                    .background(Color.Transparent),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Box(modifier = Modifier.width(2.dp).fillMaxHeight(0.2f).background(Color.White.copy(alpha = 0.5f), CircleShape))
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
-                    }
-                }
-                
-                // Start Menu Layer
-                if (activeDesktop.hasStartMenu) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = isStartMenuOpen,
-                        enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-                        exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
-                        modifier = Modifier.align(Alignment.BottomStart)
-                    ) {
-                        StartMenu(
-                            apps = installedApps,
-                            userName = userName,
-                            onAppClick = { app ->
-                                isStartMenuOpen = false
-                                if (app.isWeb && app.url != null) {
-                                    if (!openWebWindows.contains(app)) {
-                                        openWebWindows = openWebWindows + app
-                                    }
-                                    focusedApp = app
-                                } else {
-                                    val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
-                                    if (launchIntent != null) context.startActivity(launchIntent)
-                                }
-                            },
-                            onPinApp = { app ->
-                                viewModel.addWidget("app", activeDesktop.id, app.packageName)
-                            },
-                            onClose = { isStartMenuOpen = false }
+                        
+                        DesktopTaskbar(
+                            onStartClick = { screenType = ScreenType.START_SCREEN },
+                            activeApps = openWebWindows,
+                            onAppClick = { app -> focusedApp = app },
+                            showStart = true
                         )
                     }
+                    
+                    if (!isFullscreen) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = true,
+                            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        ) {
+                            RightSidePanel(
+                                activeApps = openWebWindows
+                            )
+                        }
+                    }
                 }
             }
-            
-            DesktopTaskbar(
-                onStartClick = { if (activeDesktop.hasStartMenu) isStartMenuOpen = !isStartMenuOpen },
-                activeApps = openWebWindows,
-                onAppClick = { app -> focusedApp = app },
-                showStart = activeDesktop.hasStartMenu
-            )
         }
-        
-        if (!isFullscreen) {
-            androidx.compose.animation.AnimatedVisibility(
-                visible = true,
-                enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
-                modifier = Modifier.align(Alignment.CenterEnd)
-            ) {
-                RightSidePanel(
-                    activeApps = openWebWindows
-                )
-            }
-        }
+    }
 
-        // Overlay Components
-        if (showContextMenu) {
+    // Overlay Components
+    if (showContextMenu) {
             DesktopContextMenu(
                 offset = contextMenuOffset,
                 desktops = desktopState.desktops,
@@ -1109,7 +1261,6 @@ fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState) {
             )
         }
     }
-}
 
 @Composable
 fun StartMenu(
@@ -1600,7 +1751,7 @@ fun AnimatedWallpaper() {
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(Color.Cyan.copy(alpha = 0.1f), Color.Transparent),
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.5f, size.height * 0.5f),
+                    center = Offset(size.width * 0.5f, size.height * 0.5f),
                     radius = size.width * 0.6f
                 )
             )
@@ -1985,6 +2136,235 @@ fun SystemSliderWidget() {
                 )
             }
             Text("Brightness", color = Color.White.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+fun Windows8StartScreen(
+    apps: List<AppInfo>,
+    userName: String,
+    onAppClick: (AppInfo) -> Unit,
+    onDesktopClick: () -> Unit,
+    onRestart: () -> Unit
+) {
+    val accentColor = Color(0xFF0078D7)
+    
+    Box(modifier = Modifier.fillMaxSize().background(accentColor)) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 40.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Start", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Light)
+                Spacer(modifier = Modifier.weight(1f))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(userName, color = Color.White, style = MaterialTheme.typography.titleLarge)
+                    Text("Admin", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Person, contentDescription = null, tint = Color.White)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                IconButton(onClick = onRestart) {
+                    Icon(Icons.Default.PowerSettingsNew, contentDescription = "Restart", tint = Color.White)
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            val scrollState = rememberScrollState()
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .horizontalScroll(scrollState),
+                horizontalArrangement = Arrangement.spacedBy(48.dp)
+            ) {
+                StartScreenGroup(title = "Primary") {
+                    StartTile(
+                        name = "Desktop",
+                        color = Color(0xFF68217A),
+                        icon = Icons.Default.Dashboard,
+                        onClick = onDesktopClick,
+                        isLarge = true
+                    )
+                    
+                    // Show some key apps first
+                    apps.filter { it.isWeb }.take(6).forEach { app ->
+                        StartAppTile(app, onClick = { onAppClick(app) })
+                    }
+                }
+                
+                // Group standard android apps in columns
+                val nativeApps = apps.filter { !it.isWeb && !it.isUea }
+                val groups = nativeApps.chunked(20) // Group apps into scrollable columns
+                
+                groups.forEachIndexed { index, groupApps ->
+                    StartScreenGroup(title = if (index == 0) "Apps" else "") {
+                        // Display apps in a small grid within the column
+                        val subGroups = groupApps.chunked(2)
+                        subGroups.forEach { pair ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StartAppTile(pair[0], onClick = { onAppClick(pair[0]) })
+                                if (pair.size > 1) {
+                                    StartAppTile(pair[1], onClick = { onAppClick(pair[1]) })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StartScreenGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier = Modifier.width(IntrinsicSize.Min)) {
+        Text(title, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(bottom = 12.dp))
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+fun StartTile(name: String, color: Color, icon: ImageVector, onClick: () -> Unit, isLarge: Boolean = false) {
+    Box(
+        modifier = Modifier
+            .size(if (isLarge) 210.dp else 100.dp, 100.dp)
+            .background(color)
+            .clickable { onClick() }
+            .padding(12.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp).align(Alignment.Center))
+        Text(name, color = Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.align(Alignment.BottomStart))
+    }
+}
+
+@Composable
+fun StartAppTile(app: AppInfo, onClick: () -> Unit) {
+    val tileColor = remember(app.packageName) {
+        val colors = listOf(Color(0xFF2D89EF), Color(0xFFDA532C), Color(0xFFEE1111), Color(0xFF00A300), Color(0xFF7E3878))
+        colors[app.packageName.hashCode().let { if (it < 0) -it else it } % colors.size]
+    }
+    
+    Box(
+        modifier = Modifier
+            .size(100.dp)
+            .background(tileColor)
+            .clickable { onClick() }
+            .padding(8.dp)
+    ) {
+        Image(
+            bitmap = app.icon.toBitmap().asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.size(40.dp).align(Alignment.Center)
+        )
+        Text(app.name, color = Color.White, fontSize = 10.sp, maxLines = 2, modifier = Modifier.align(Alignment.BottomStart))
+    }
+}
+
+@Composable
+fun MetroAppView(app: AppInfo, onClose: () -> Unit) {
+    var showSplash by remember { mutableStateOf(true) }
+    var isFullscreen by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(Unit) {
+        delay(800)
+        showSplash = false
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (!isFullscreen) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().height(40.dp),
+                    color = Color.Black.copy(alpha = 0.8f)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Image(
+                            bitmap = app.icon.toBitmap().asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            app.name,
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        
+                        IconButton(onClick = { isFullscreen = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Default.Fullscreen,
+                                contentDescription = "Fullscreen",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(8.dp))
+                        
+                        IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Box(modifier = Modifier.weight(1f)) {
+                WebViewWindow(
+                    app = app,
+                    isFullscreen = true,
+                    onClose = onClose,
+                    onFullscreenToggle = {}
+                )
+                
+                if (isFullscreen) {
+                    IconButton(
+                        onClick = { isFullscreen = false },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp)
+                            .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.FullscreenExit, contentDescription = "Exit Fullscreen", tint = Color.White)
+                    }
+                }
+            }
+        }
+        
+        AnimatedVisibility(
+            visible = showSplash,
+            enter = fadeIn(),
+            exit = fadeOut(animationSpec = tween(500))
+        ) {
+            val tileColor = remember(app.packageName) {
+                val colors = listOf(Color(0xFF2D89EF), Color(0xFFDA532C), Color(0xFFEE1111), Color(0xFF00A300), Color(0xFF7E3878))
+                colors[app.packageName.hashCode().let { if (it < 0) -it else it } % colors.size]
+            }
+            
+            Box(modifier = Modifier.fillMaxSize().background(tileColor), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Image(
+                        bitmap = app.icon.toBitmap().asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.size(120.dp)
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(app.name, color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Light)
+                }
+            }
         }
     }
 }

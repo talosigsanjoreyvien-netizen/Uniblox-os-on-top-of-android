@@ -11,7 +11,7 @@ android {
   compileSdk = 35 // Android 15 SDK matching your tablet
 
   defaultConfig {
-    applicationId = "fun.cybercode.uniblox.os"
+    applicationId = "fun.cybercode.uniblox.os.dev"
     minSdk = 24     // Safe minimum for 64-bit modern ARM architectures
     targetSdk = 35  // Tells Android 15 to permit modern execution threads
     versionCode = 1
