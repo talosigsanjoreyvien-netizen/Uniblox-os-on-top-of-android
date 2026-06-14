@@ -1,0 +1,5 @@
+# Uniblox Package File
+# Version: 1.0.0
+# Engine: Next
+package_id = "fun.cybercode.uniblox"
+package_name = "Uniblox Engine"

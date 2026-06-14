@@ -54,6 +54,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.activity.compose.BackHandler
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -440,7 +443,8 @@ fun UnibloxOSApp(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     val prefs = remember { context.getSharedPreferences("os_prefs", android.content.Context.MODE_PRIVATE) }
     var isSystemReady by rememberSaveable { mutableStateOf(prefs.getBoolean("is_ready", false)) }
     var bootTrigger by remember { mutableStateOf(0) }
@@ -915,6 +919,7 @@ fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState, onRest
     val userName = desktopState.settings?.userName ?: ""
     val context = LocalContext.current
     val pm = context.packageManager
+    val lifecycleOwner = LocalLifecycleOwner.current
     
     val installedApps = remember(desktopState.webApps, pm) {
         val intents = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
@@ -946,8 +951,12 @@ fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState, onRest
             appsList.add(AppInfo("InfinityCursor AI", "fun.cybercode.uniblox.ai", pm.defaultActivityIcon, true, "about:blank"))
         }
 
+        if (appsList.none { it.packageName == "fun.cybercode.uniblox.engine" }) {
+            appsList.add(0, AppInfo("Uniblox Game Engine", "fun.cybercode.uniblox.engine", pm.defaultActivityIcon, true, "https://uniblox-fun.lovable.app"))
+        }
+
         if (appsList.none { it.packageName == "fun.cybercode.uniblox.store" }) {
-            appsList.add(AppInfo("Uniblox Appstore", "fun.cybercode.uniblox.store", pm.defaultActivityIcon, true, "https://uniblox-fun.vercel.app"))
+            appsList.add(0, AppInfo("Uniblox Appstore", "fun.cybercode.uniblox.store", pm.defaultActivityIcon, true, "https://uniblox-fun.vercel.app"))
         }
         
         if (appsList.none { it.packageName == "system.utility.trash" }) {
@@ -1009,6 +1018,24 @@ fun DesktopScreen(viewModel: MainViewModel, desktopState: DesktopUiState, onRest
     var contextMenuOffset by remember { mutableStateOf(Offset.Zero) }
     var showCustomizer by remember { mutableStateOf(false) }
     var showWebAppInstaller by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // Stop the floating window service when the OS returns to the foreground
+                context.stopService(Intent(context, FloatingWindowService::class.java))
+                
+                // If we were in a Metro app, return to the start menu when resuming (e.g. Home button)
+                if (screenType == ScreenType.METRO_APP) {
+                    screenType = ScreenType.START_SCREEN
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     BackHandler {
         when (screenType) {
@@ -2187,9 +2214,25 @@ fun Windows8StartScreen(
                         isLarge = true
                     )
                     
-                    // Show some key apps first
-                    apps.filter { it.isWeb }.take(6).forEach { app ->
-                        StartAppTile(app, onClick = { onAppClick(app) })
+                    // Group web apps/UEA apps
+                    val webApps = apps.filter { it.isWeb || it.isUea }
+                    val unibloxApps = webApps.filter { it.packageName.contains("uniblox") }
+                    val otherWebApps = webApps.filter { !it.packageName.contains("uniblox") }
+
+                    if (unibloxApps.isNotEmpty()) {
+                        StartScreenGroup(title = "Uniblox") {
+                            unibloxApps.forEach { app ->
+                                StartAppTile(app, onClick = { onAppClick(app) })
+                            }
+                        }
+                    }
+
+                    if (otherWebApps.isNotEmpty()) {
+                        StartScreenGroup(title = "Web Apps") {
+                            otherWebApps.forEach { app ->
+                                StartAppTile(app, onClick = { onAppClick(app) })
+                            }
+                        }
                     }
                 }
                 
@@ -2278,8 +2321,8 @@ fun MetroAppView(app: AppInfo, onClose: () -> Unit) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (!isFullscreen) {
                 Surface(
-                    modifier = Modifier.fillMaxWidth().height(40.dp),
-                    color = Color.Black.copy(alpha = 0.8f)
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    color = Color.Black.copy(alpha = 0.95f)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),

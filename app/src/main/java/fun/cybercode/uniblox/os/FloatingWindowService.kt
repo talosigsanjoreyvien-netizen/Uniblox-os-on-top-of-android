@@ -63,12 +63,17 @@ class FloatingWindowService : Service() {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             x = 0
             y = 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
 
         val composeView = ComposeView(this).apply {
@@ -89,8 +94,8 @@ class FloatingWindowService : Service() {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(if (isFullscreen) 1.dp else 40.dp),
-                    color = Color.Black.copy(alpha = 0.7f)
+                        .height(if (isFullscreen) 1.dp else 44.dp),
+                    color = Color.Black.copy(alpha = 0.95f)
                 ) {
                     if (!isFullscreen) {
                         Row(

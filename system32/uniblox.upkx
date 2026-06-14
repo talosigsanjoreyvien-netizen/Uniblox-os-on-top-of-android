@@ -1,0 +1,15 @@
+[!uniblox application.property: next; ]
+webview{
+webview.next{
+load.app.uri: uniblox-fun.lovable.app ;
+}
+}<upkx.module: web.execute.cs.cyberscript >
+<upkx.import.cyberscript6 > null import2 ;
+<cyberscript
+ cs.xxx:  self.unibloxwebpack.cs { run.uniblox.application : application.property next , node, uniblox.node ;
+
+ token.verification: sdk-djjsjsjsjjjjsjzjzj#16637727723727
+ }
+ />
+ 
+ export default upkx.markup function upkx
